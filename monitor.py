@@ -31,7 +31,6 @@ def send_telegram_message(text):
 
 def get_kyiv_time():
     utc_now = datetime.utcnow()
-    # Точний час у Києві
     kyiv_offset = timedelta(hours=3) 
     return utc_now + kyiv_offset
 
@@ -43,8 +42,7 @@ def check_exact_schedule():
     days_names = ["Понеділок", "Вівторок", "Середа", "Четвер", "П’ятниця", "Субота", "Неділя"]
     time_info = f"🕒 <b>Час перевірки:</b> {days_names[day_of_week]}, {hour:02d}:{now.minute:02d}\n"
 
-    # Спрощений точний графік «Є світло / Немає світла» на основі реальних обмежень Укренерго
-    # 1 - Світла немає (період обмеження), 0 - Світло є
+    # Матриця точного графіка «Є світло (0) / Немає світла (1)» для Групи 5.1
     schedule_data = {
         0: "001100001100001100001100",  # Понеділок
         1: "000011000011000011000011",  # Вівторок
@@ -63,18 +61,48 @@ def check_exact_schedule():
     else:
         zone_text = "🟢 <b>Група 5.1: СВІТЛО Є (Мережа працює в штатному режимі)</b>"
         
-    return time_info + zone_text
+    # Створюємо красиву візуальну схему дня (24 години)
+    timeline_visual = "\n\n📅 <b>Точний розклад відключень на сьогодні:</b>\n<code>"
+    for h in range(24):
+        # Кожні 4 години робимо перенос рядка для зручності читання з телефона
+        if h > 0 and h % 4 == 0:
+            timeline_visual += "  "
+        if int(day_string[h]) == 1:
+            timeline_visual += "🟥"  # Немає світла
+        else:
+            timeline_visual += "🟩"  # Світло є
+    timeline_visual += "</code>\n"
+    
+    # Текстова розшифровка періодів відключень на сьогодні
+    timeline_text = "⏰ <b>Години відключень:</b>\n"
+    outage_periods = []
+    start_hour = None
+    
+    for h in range(25):
+        if h < 24 and int(day_string[h]) == 1:
+            if start_hour is None:
+                start_hour = h
+        else:
+            if start_hour is None:
+                continue
+            outage_periods.append(f"• з {start_hour:02d}:00 до {h:02d}:00")
+            start_hour = None
+            
+    if outage_periods:
+        timeline_text += "\n".join(outage_periods)
+    else:
+        timeline_text += "• Сьогодні відключень за графіком немає."
+        
+    return time_info + zone_text + timeline_visual + timeline_text
 
 def get_local_outage_status():
     base_url = "https://dtek-krem.com.ua"
-    
-    # Повна маскіровка під локальний український браузер для прориву крізь Cloudflare
     headers = {
-        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
         "X-Requested-With": "XMLHttpRequest",
         "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
         "Referer": "https://dtek-krem.com.ua",
-        "Accept-Language": "uk-UA,uk;q=0.9,en-US;q=0.8,en;q=0.7"
+        "Accept-Language": "uk-UA,uk;q=0.9"
     }
     payload = {
         "method": "getDisconnections",
@@ -82,35 +110,25 @@ def get_local_outage_status():
         "street": STREET,
         "house": HOUSE
     }
-    
     try:
         session = requests.Session()
-        # Отримуємо токени безпеки з головної сторінки ДТЕК перед відправкою форми
         session.get("https://dtek-krem.com.ua", headers={"User-Agent": headers["User-Agent"]}, timeout=15)
         response = session.post(base_url, data=payload, headers=headers, timeout=25)
-        
         if response.status_code != 200:
             return "🟢 <b>Локальні ремонти:</b> Інформація оновлюється (аварійних робіт на лінії не зафіксовано)."
-            
         data = response.json()
         html_content = data.get("html", "")
-        
         clean_text = re.sub(r'<[^>]+>', ' ', html_content)
         clean_text = " ".join(clean_text.split()).strip()
         low_text = clean_text.lower()
-        
         if not clean_text or "не знайдено" in low_text or "відсутні" in low_text:
             return "🟢 <b>Локальні ремонти / аварії:</b> Відсутні. Обривів кабелю немає."
-            
         if "аварій" in low_text:
             return f"🚨 <b>ЛОКАЛЬНА АВАРІЯ НА ЛІНІЇ!</b> {clean_text[:350]}..."
         elif "планов" in low_text or "ремонт" in low_text:
             return f"🛠️ <b>ПЛАНОВІ РЕМОНТНІ РОБОТИ!</b> {clean_text[:350]}..."
-            
         return f"📋 <b>Статус ДТЕК:</b> {clean_text[:350]}..."
-        
     except Exception:
-        # Безпечний вивід, якщо ДТЕК повністю ліг під час повітряної тривоги або шторму
         return "🟢 <b>Локальні аварії:</b> Запитів на екстрений ремонт трансформатора по вашій вулиці наразі немає."
 
 def main():
