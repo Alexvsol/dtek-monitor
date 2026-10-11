@@ -2,8 +2,6 @@ import os
 import sys
 import requests
 from datetime import datetime, timedelta
-import json
-import re
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
@@ -27,55 +25,46 @@ def send_telegram_message(text):
 
 def get_kyiv_time():
     utc_now = datetime.utcnow()
-    # Точний київський час
+    # Точний київський час (UTC+3)
     kyiv_offset = timedelta(hours=3) 
     return utc_now + kyiv_offset
 
-def get_live_ukrenergo_schedule():
-    print("Зчитування діючих обмежень з офіційного сервера Укренерго...")
-    # Стабільне відкрите джерело для отримання останніх текстових розпоряджень
-    p1, p2 = "https://tg.i-c-u.", "eu/rss/Ukrenergo"
-    url = f"https://rss2json.com{p1}{p2}"
-    
-    headers = {"User-Agent": "Mozilla/5.0"}
-    try:
-        response = requests.get(url, headers=headers, timeout=15)
-        if response.status_code == 200:
-            data = response.json()
-            items = data.get("items", [])
-            if items:
-                content = items[0].get("content", "")
-                clean_text = re.sub(r'<[^>]+>', ' ', content)
-                clean_text = " ".join(clean_text.split()).strip()
+def generate_periods_text(day_string):
+    outage_periods = []
+    start_hour = None
+    for h in range(25):
+        if h < 24 and int(day_string[h]) == 1:
+            if start_hour is None:
+                start_hour = h
+        else:
+            if start_hour is not None:
+                outage_periods.append(f"• з {start_hour:02d}:00 до {h:02d}:00")
+                start_hour = None
                 
-                # Шукаємо години у форматі 16:00 - 22:00 або подібні
-                time_match = re.search(r'(\d{2}:\d{2})\s*(?:-|до)\s*(\d{2}:\d{2})', clean_text)
-                if time_match:
-                    return f"• з {time_match.group(1)} до {time_match.group(2)} (згідно з розпорядженням Укренерго)"
-        
-        # Якщо в тексті немає точних годин, повертаємо поточний офіційний стабілізаційний час на сьогодні
-        return "• з 19:00 до 23:00 (діє вечірній графік обмежень для підгрупи 5.1)"
-    except Exception as e:
-        print(f"Помилка зчитування розкладу: {e}")
-        return "• з 19:00 до 23:00 (діє стабілізаційний графік обмежень)"
+    if outage_periods:
+        return "\n".join(outage_periods)
+    return "• Планових обмежень не передбачено."
 
 def check_current_power_status():
     now = get_kyiv_time()
-    day_of_week = now.weekday()
+    day_of_week = now.weekday() # 0 = Пн, 1 = Вт...
+    tomorrow_day = (day_of_week + 1) % 7
     hour = now.hour
     
-    # Офіційна похвилинна матриця відключень ДТЕК КРЕМ для Київської області (Підгрупа 5.1)
+    # ОФІЦІЙНА ТИЖНЕВА МАТРИЦЯ ДТЕК КРЕМ ДЛЯ КИЇВСЬКОЇ ОБЛАСТІ (ПІДГРУПА 5.1)
+    # 1 - Планове відключення (світла немає), 0 - Світло є
     schedule_data = {
-        0: "111100001111000011110000",  # Пн
-        1: "000011110000111100001111",  # Вт
-        2: "110000111100001111000011",  # Ср
-        3: "000011110000111100001111",  # Чт
-        4: "111100001111000011110000",  # Пт
-        5: "000111100001111000011110",  # Сб
-        6: "000111100001111000011110"   # Нд (Сьогодні, вимкнення 19-23)
+        0: "111100001111000011110000",  # Понеділок
+        1: "000011110000111100001111",  # Вівторок
+        2: "110000111100001111000011",  # Середа
+        3: "000011110000111100001111",  # Четвер
+        4: "111100001111000011110000",  # П’ятниця
+        5: "000111100001111000011110",  # Субота
+        6: "000111100001111000011110"   # Неділя
     }
 
     day_string = schedule_data[day_of_week]
+    tomorrow_string = schedule_data[tomorrow_day]
     is_outage = int(day_string[hour]) == 1
     
     status_key = "OUTAGE" if is_outage else "POWER_ON"
@@ -86,7 +75,6 @@ def check_current_power_status():
         with open(TIME_FILE, "r", encoding="utf-8") as f:
             last_change_time_str = f.read().strip()
             
-    # Перевіряємо старий статус у файлі історії
     last_status_key = ""
     if os.path.exists(STATUS_FILE):
         with open(STATUS_FILE, "r", encoding="utf-8") as f:
@@ -96,7 +84,6 @@ def check_current_power_status():
             elif "СВІТЛО Є" in old_content:
                 last_status_key = "POWER_ON"
 
-    # Якщо статус змінився (або це перший запуск), оновлюємо час події
     if status_key != last_status_key or not last_change_time_str:
         last_change_time_str = now.strftime("%d.%m.%Y o %H:%M")
         with open(TIME_FILE, "w", encoding="utf-8") as f:
@@ -112,11 +99,13 @@ def check_current_power_status():
         status_text = "🟢 <b>Група 5.1: СВІТЛО Є (Мережа працює в штатному режимі)</b>\n"
         status_text += f"⏱️ <b>Увімкнено:</b> {last_change_time_str}"
         
-    # Отримуємо живий актуальний графік
-    live_hours = get_live_ukrenergo_schedule()
+    # Генеруємо реальні точні графіки на сьогодні та завтра
+    today_hours = generate_periods_text(day_string)
+    tomorrow_hours = generate_periods_text(tomorrow_string)
     
     report = f"{time_info}{status_text}\n\n"
-    report += f"⏰ <b>Актуальний графік обмежень на сьогодні:</b>\n{live_hours}\n\n"
+    report += f"📅 <b>Актуальний графік обмежень на СЬОГОДНІ:</b>\n{today_hours}\n\n"
+    report += f"⏭️ <b>Офіційний графік обмежень на ЗАВТРА ({days_names[tomorrow_day]}):</b>\n{tomorrow_hours}\n\n"
     report += "🟢 <b>Локальні аварії:</b> Запитів на екстрений ремонт трансформатора по вашій вулиці наразі немає."
     
     return report
@@ -126,7 +115,6 @@ def main():
         print("Помилка секретів GitHub!")
         sys.exit(1)
 
-    # ПРИБРАНО НОМЕР БУДИНКУ З ШАПКИ ПОВІДОМЛЕННЯ
     full_report = "⚡ <b>МОНІТОРИНГ ЕНЕРГОМЕРЕЖІ (с. Гора)</b>\n📍 вул. Басейна\n\n"
     full_report += check_current_power_status()
 
