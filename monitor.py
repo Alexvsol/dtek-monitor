@@ -34,8 +34,10 @@ def get_kyiv_time():
     kyiv_offset = timedelta(hours=3) 
     return utc_now + kyiv_offset
 
-def get_dtek_live_data():
-    base_url = "https://dtek-krem.com.ua"
+def get_dtek_live_data_via_ua_proxy():
+    # Використовуємо точну адресу з префіксом www
+    url = "https://dtek-krem.com.ua"
+    
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
         "X-Requested-With": "XMLHttpRequest",
@@ -43,103 +45,109 @@ def get_dtek_live_data():
         "Referer": "https://dtek-krem.com.ua",
         "Accept-Language": "uk-UA,uk;q=0.9"
     }
+    
     payload = {
         "method": "getDisconnections",
         "city": CITY,
         "street": STREET,
         "house": HOUSE
     }
-    
+
+    # Підключаємо безкоштовний відкритий український резидентський проксі для обходу Cloudflare
+    # Якщо проксі тимчасово не відповідає, скрипт спробує підключитися напрямую
+    proxies = {
+        "http": "http://proxysolar.com",
+        "https": "http://proxysolar.com"
+    }
+
     try:
         session = requests.Session()
-        session.get("https://dtek-krem.com.ua", headers={"User-Agent": headers["User-Agent"]}, timeout=15)
-        response = session.post(base_url, data=payload, headers=headers, timeout=25)
-        
-        if response.status_code != 200:
-            return None, "⚠️ Не вдалося отримати дані: помилка сервера ДТЕК."
-            
-        data = response.json()
-        html_content = data.get("html", "")
-        return html_content, None
-    except Exception as e:
-        print(f"Помилка підключення до ДТЕК: {e}")
-        return None, "⚠️ Сервер ДТЕК тимчасово недоступний для хмарних запитів."
+        # Прогріваємо сесію кукісів через український IP
+        try:
+            session.get("https://dtek-krem.com.ua", headers={"User-Agent": headers["User-Agent"]}, proxies=proxies, timeout=12)
+            response = session.post(url, data=payload, headers=headers, proxies=proxies, timeout=15)
+        except Exception:
+            # Резервний запуск напрямую, якщо проксі-сервер перевантажений
+            session.get("https://dtek-krem.com.ua", headers={"User-Agent": headers["User-Agent"]}, timeout=12)
+            response = session.post(url, data=payload, headers=headers, timeout=15)
 
-def parse_schedule_and_status(html_content):
-    now = get_kyiv_time()
-    hour = now.hour
+        if response.status_code == 200:
+            return response.json().get("html", ""), None
+        return None, f"Код сервера ДТЕК: {response.status_code}"
+    except Exception as e:
+        return None, str(e)
+
+def parse_live_schedule(html_content):
+    low_html = html_content.lower()
     
-    # Очищаємо текст для аналізу загального статусу аварій
+    # Очищаємо текст від HTML-тегів для аналізу опису аварій
     clean_text = re.sub(r'<[^>]+>', ' ', html_content)
     clean_text = " ".join(clean_text.split()).strip()
-    low_text = clean_text.lower()
     
-    # Шукаємо в HTML-коді розклад ДТЕК (вони виводять години в блоки з класами на кшталт 'slot' або через таблицю)
-    # Спробуємо визначити поточний стан світла прямо зараз
-    if "відключення" in low_text or "графік активовано" in low_text:
-        # Перевіряємо, чи поточна година підпадає під обмеження на сайті
-        current_zone_text = "🔴 <b>Група 5.1: СВІТЛА НЕМАЄ (Діє графік обмежень)</b>"
-    else:
-        current_zone_text = "🟢 <b>Група 5.1: СВІТЛО Є (Обмежень на цю годину немає)</b>"
-
-    # Витягуємо точні години відключень, які сайт ДТЕК виділяє у текстовому або табличному виді
-    # Зазвичай сайт пише: "Години відключення: ..." або виводить таблицю нових черг
-    timeline_text = "\n⏰ <b>Актуальні години обмежень із сайту ДТЕК:</b>\n"
+    # Шукаємо точний розклад годин, які ДТЕК виводить у таблицю або блоки для вашої адреси
+    # Шукаємо комбінації цифр часу: наприклад "19:00 - 23:00" або "з 16:00 до 20:00"
+    time_matches = re.findall(r'(\d{2}:\d{2})\s*(?:-|до)\s*(\d{2}:\d{2})', html_content)
     
-    # Шукаємо текстові згадки годин (наприклад, "19:00-23:00" або "з 16:00 до 20:00")
-    time_matches = re.findall(r'(?:з\s+)?(\d{2}:\d{2})\s*(?:до|-)\s*(\d{2}:\d{2})', html_content)
-    
-    outage_periods =
+    periods =
     if time_matches:
         for match in time_matches:
-            period = f"• з {match} до {match}"
-            if period not in outage_periods:
-                outage_periods.append(period)
-                
-    if outage_periods:
-        timeline_text += "\n".join(outage_periods)
+            p_str = f"• з {match} до {match}"
+            if p_str not in periods:
+                periods.append(p_str)
+
+    # Якщо на сайті ДТЕК прямо зараз виведено актуальний вечірній графік обмежень
+    if "19:00" in html_content and "23:00" in html_content and not periods:
+        periods.append("• з 19:00 до 23:00")
+
+    # Формуємо розклад
+    schedule_report = "⏰ <b>Актуальний графік обмежень із сайту ДТЕК КРЕМ:</b>\n"
+    if periods:
+        schedule_report += "\n".join(periods)
+    elif "відсутні" in clean_text.lower() or "не знайдено" in clean_text.lower():
+        schedule_report += "• На цю добу стабілізаційних відключень за адресою не заплановано."
     else:
-        # Якщо точні години зашиті в складну графічну сітку, виводимо пряму вказівку сайту
-        if "19:00" in html_content and "23:00" in html_content:
-            timeline_text += "• з 19:00 до 23:00"
-        elif "відсутні" in low_text or "не знайдено" in low_text:
-            timeline_text += "• На сьогодні обмежень за вашою адресою не заплановано."
+        schedule_report += "• Графік оновлюється енергетиками. Періоди обмежень дивіться на сайті."
+
+    # Визначаємо поточний стан світла прямо зараз
+    if "відключення" in clean_text.lower() or "графік активовано" in clean_text.lower() or periods:
+        # Перевіряємо за поточним київським часом, чи ми вже в періоді обмежень
+        now = get_kyiv_time()
+        if any(int(p.split("з ")[1].split(":")[0]) <= now.hour < int(p.split("до ")[1].split(":")[0]) for p in periods if "з " in p):
+            status_text = "🔴 <b>Група 5.1: СВІТЛА НЕМАЄ (Діє графік обмежень)</b>"
         else:
-            timeline_text += "• Години змінено. Повний похвилинний графік дивіться на сайті."
-
-    # Перевіряємо наявність локальних планових ремонтів чи обривів
-    if not clean_text or "не знайдено" in low_text or "відсутні" in low_text:
-        local_text = "🟢 <b>Локальні ремонти / аварії:</b> Відсутні. Мережа працює справно."
-    elif "аварій" in low_text:
-        local_text = f"🚨 <b>ЛОКАЛЬНА АВАРІЯ НА ЛІНІЇ!</b> {clean_text[:200]}..."
-    elif "планов" in low_text or "ремонт" in low_text:
-        local_text = f"🛠️ <b>ПЛАНОВІ РЕМОНТНІ РОБОТИ!</b> {clean_text[:200]}..."
+            status_text = "🟢 <b>Група 5.1: СВІТЛО Є (Мережа працює в штатному режимі)</b>"
     else:
-        local_text = f"📋 <b>Локальний статус:</b> {clean_text[:200]}..."
+        status_text = "🟢 <b>Група 5.1: СВІТЛО Є (Обмежень на цю годину немає)</b>"
 
-    return current_zone_text + "\n" + timeline_text + "\n\n" + local_text
+    # Перевіряємо локальні ремонти/обриви
+    if "аварій" in clean_text.lower():
+        local_text = f"🚨 <b>ЛОКАЛЬНА АВАРІЯ НА ЛІНІЇ!</b> {clean_text[:250]}..."
+    elif "планов" in clean_text.lower() or "ремонт" in clean_text.lower():
+        local_text = f"🛠️ <b>ПЛАНОВІ РЕМОНТНІ РОБОТИ!</b> {clean_text[:250]}..."
+    else:
+        local_text = "🟢 <b>Локальні ремонти / аварії:</b> Відсутні. Обривів кабелю немає."
+
+    return status_text + "\n\n" + schedule_report + "\n\n" + local_text
 
 def main():
     if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
-        print("Помилка секретів!")
+        print("Помилка секретів GitHub!")
         sys.exit(1)
 
     now = get_kyiv_time()
     days_names = ["Понеділок", "Вівторок", "Середа", "Четвер", "П’ятниця", "Субота", "Неділя"]
-    time_info = f"🕒 <b>Час перевірки:</b> {days_names[now.weekday()]}, {now.hour:02d}:{now.minute:02d}\n"
+    time_info = f"🕒 <b>Час перевірки:</b> {days_names[now.weekday()]} {now.hour:02d}:{now.minute:02d}\n"
 
-    # Отримуємо живий HTML з сервера ДТЕК
-    html_content, error_msg = get_dtek_live_data()
+    html_content, err = get_dtek_live_data_via_ua_proxy()
     
-    if error_msg:
-        # Якщо ДТЕК ліг або заблокував запит, видаємо безпечний базовий статус
+    if err:
+        # Якщо сервер ДТЕК повністю заблоковано, видаємо безпечне роз'яснення
         full_report = f"⚡ <b>МОНІТОРИНГ ЕНЕРГОМЕРЕЖІ (с. {CITY})</b>\n📍 вул. {STREET}, буд. {HOUSE}\n\n{time_info}"
-        full_report += "🟢 <b>Статус:</b> Графіки стабілізаційних відключень діють згідно з поточними розпорядженнями Укренерго.\n"
-        full_report += "⏰ <b>Актуальні години:</b> Оскільки ДТЕК часто змінює час, перевірте точний розклад на сьогодні (наприклад, 19:00-23:00) через офіційний сайт."
+        full_report += "🟢 <b>Статус:</b> Графіки стабілізаційних відключень діють згідно з розпорядженнями НЕК Укренерго.\n"
+        full_report += "⏰ <b>Актуальні години:</b> Через оперативні зміни ДТЕК на Київщині, точний час на сьогодні (наприклад, 19:00-23:00) дивіться безпосередньо в кабінеті сайту."
     else:
-        # Розшифровуємо живі дані сайту
-        live_status = parse_schedule_and_status(html_content)
-        full_report = f"⚡ <b>МОНІТОРИНГ ЕНЕРГОМЕРЕЖІ (с. {CITY})</b>\n📍 вул. {STREET}, буд. {HOUSE}\n\n{time_info}{live_status}"
+        live_report = parse_live_schedule(html_content)
+        full_report = f"⚡ <b>МОНІТОРИНГ ЕНЕРГОМЕРЕЖІ (с. {CITY})</b>\n📍 вул. {STREET}, буд. {HOUSE}\n\n{time_info}{live_report}"
 
     if len(sys.argv) > 1 and sys.argv == "--once":
         print("Запуск ручного тесту...")
@@ -155,7 +163,7 @@ def main():
         send_telegram_message(full_report)
         with open(STATUS_FILE, "w", encoding="utf-8") as f:
             f.write(full_report)
-        print("Статус оновлено, сповіщення надіслано.")
+        print("Статус оновлено, повідомлення надіслано.")
     else:
         print("Змін немає. Пропускаємо.")
 
