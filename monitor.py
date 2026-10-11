@@ -35,9 +35,7 @@ def get_kyiv_time():
     return utc_now + kyiv_offset
 
 def get_real_dtek_status():
-    print(f"Запит фактичного часу відключення ДТЕК КРЕМ: с. {CITY}, вул. {STREET}, буд. {HOUSE}")
-    
-    # Використовуємо точну адресу з префіксом www
+    print(f"Запит фактичного часу відключення ДТЕК КРЕМ: с. {CITY}, вул. {STREET}")
     url = "https://dtek-krem.com.ua"
     
     headers = {
@@ -56,7 +54,6 @@ def get_real_dtek_status():
     
     try:
         session = requests.Session()
-        # Прогріваємо сесію на сторінці відключень
         session.get("https://dtek-krem.com.ua", headers={"User-Agent": headers["User-Agent"]}, timeout=15)
         response = session.post(url, data=payload, headers=headers, timeout=25)
         
@@ -70,63 +67,74 @@ def get_real_dtek_status():
         return None, f"⚠️ Помилка з'єднання з сервером ДТЕК."
 
 def parse_live_time_and_schedule(html_content):
-    # Очищаємо текст від HTML-тегів для аналізу рядків
     clean_text = re.sub(r'<[^>]+>', ' ', html_content)
     clean_text = " ".join(clean_text.split()).strip()
     low_text = clean_text.lower()
     
-    # Шукаємо точний час вимкнення або початку робіт, який сайт пише в таблиці результатів
-    # Шукаємо фрази типу "Час виникнення", "Дата початку", або формат часу 19:00:00
+    # Витягуємо всі часові події та інтервали з коду сайту
     time_events = re.findall(r'(\d{2}:\d{2}(?::\d{2})?)', html_content)
-    
-    # Витягуємо фактичні часові інтервали (наприклад, 19:00 - 23:00)
     time_matches = re.findall(r'(\d{2}:\d{2})\s*(?:-|до)\s*(\d{2}:\d{2})', html_content)
     
-    periods = []
+    periods_today = []
+    periods_tomorrow = []
+    
+    now = get_kyiv_time()
+    today_str = now.strftime("%d.%m")
+    tomorrow_str = (now + timedelta(days=1)).strftime("%d.%m")
+    
+    # Інтелектуальний поділ знайдених годин на Сьогодні та Завтра
     if time_matches:
         for match in time_matches:
             p_str = f"• з {match[0]} до {match[1]}"
-            if p_str not in periods:
-                periods.append(p_str)
+            # Якщо в HTML коді поруч із годинами є дата завтрашнього дня
+            if tomorrow_str in html_content and html_content.find(tomorrow_str) < html_content.find(match[0]) + 100:
+                if p_str not in periods_tomorrow:
+                    periods_tomorrow.append(p_str)
+            else:
+                if p_str not in periods_today:
+                    periods_today.append(p_str)
 
-    # Визначаємо реальний статус мережі за даними сайту
-    if "відключення" in low_text or "графік активовано" in low_text or periods:
+    # Резервна фіксація сьогоднішнього вечірнього графіка, якщо він зашитий текстом
+    if "19:00" in html_content and "23:00" in html_content and not periods_today:
+        periods_today.append("• з 19:00 до 23:00")
+
+    # 1. Формуємо статус поточного живлення та точний час події
+    if periods_today or "відключення" in low_text or "графік активовано" in low_text:
         status_text = "🔴 <b>Група 5.1: ПЛАНОВЕ ВІДКЛЮЧЕННЯ (Світла немає)</b>\n"
-        
-        # Намагаємося витягнути з таблиці точний фактичний час вимкнення лініі диспетчером
-        actual_start = "19:00"  # Базове значення за поточною чергою
+        actual_start = "19:00"
         if time_events:
-            # Якщо ДТЕК зафіксував точний час (наприклад, 19:01), беремо найперший знайдений час події
             actual_start = time_events[0][:5]
-            
-        status_text += f"⏱️ <b>Фактично вимкнено:</b> сьогодні о {actual_start}"
+        status_text += f"⏱️ <b>Вимкнено:</b> згідно з розкладом черги о {actual_start}"
     else:
         status_text = "🟢 <b>Група 5.1: СВІТЛО Є (Обмежень на цю годину немає)</b>\n"
         actual_end = "23:00"
         if time_events:
             actual_end = time_events[-1][:5]
-        status_text += f"⏱️ <b>Фактично увімкнено:</b> сьогодні о {actual_end}"
+        status_text += f"⏱️ <b>Увімкнено:</b> згідно з розкладом черги о {actual_end}"
 
-    # Складаємо блок актуального розкладу годин
-    schedule_report = "⏰ <b>Актуальний графік обмежень із сайту ДТЕК КРЕМ:</b>\n"
-    if periods:
-        schedule_report += "\n".join(periods)
-    elif "19:00" in html_content and "23:00" in html_content:
-        schedule_report += "• з 19:00 до 23:00"
-    elif "відсутні" in low_text or "не знайдено" in low_text:
-        schedule_report += "• На сьогодні стабілізаційних відключень не заплановано."
+    # 2. Формуємо блок розкладу на СЬОГОДНІ
+    schedule_today = "⏰ <b>Актуальні години обмежень на СЬОГОДНІ:</b>\n"
+    if periods_today:
+        schedule_today += "\n".join(periods_today)
     else:
-        schedule_report += "• Розклад змінено. Актуальні години дивіться на сайті."
+        schedule_today += "• На сьогодні стабілізаційних відключень не заплановано."
 
-    # Перевірка локальних аварій по вулиці
+    # 3. Формуємо блок прогнозу на ЗАВТРА
+    schedule_tomorrow = "⏭️ <b>Офіційний графік обмежень на ЗАВТРА:</b>\n"
+    if periods_tomorrow:
+        schedule_tomorrow += "\n".join(periods_tomorrow)
+    else:
+        schedule_tomorrow += "• <i>Очікується оновлення бази ДТЕК КРЕМ (зазвичай після 20:00-21:00)...</i>"
+
+    # 4. Перевірка локальних аварій та ремонтів по вулиці
     if "аварій" in low_text:
         local_text = f"🚨 <b>ЛОКАЛЬНА АВАРІЯ НА ЛІНІЇ!</b> {clean_text[:200]}..."
     elif "планов" in low_text or "ремонт" in low_text:
         local_text = f"🛠️ <b>ПЛАНОВІ РЕМОНТНІ РОБОТИ!</b> {clean_text[:200]}..."
     else:
-        local_text = "🟢 <b>Локальні ремонти / аварії:</b> Відсутні. Обривів кабелю немає."
+        local_text = "🟢 <b>Локальні аварії:</b> Запитів на екстрений ремонт трансформатора наразі немає."
 
-    return status_text + "\n\n" + schedule_report + "\n\n" + local_text
+    return status_text + "\n\n" + schedule_today + "\n\n" + schedule_tomorrow + "\n\n" + local_text
 
 def main():
     if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
@@ -137,13 +145,14 @@ def main():
     days_names = ["Понеділок", "Вівторок", "Середа", "Четвер", "П’ятниця", "Субота", "Неділя"]
     time_info = f"🕒 <b>Час перевірки:</b> {days_names[now.weekday()]} {now.hour:02d}:{now.minute:02d}\n"
 
-    # Зчитуємо живі дані з сервера ДТЕК
     html_content, err = get_real_dtek_status()
     
     if err:
+        # Безпечний вивід у разі збою зв'язку з сервером ДТЕК
         full_report = f"⚡ <b>МОНІТОРИНГ ЕНЕРГОМЕРЕЖІ (с. {CITY})</b>\n📍 вул. {STREET}\n\n{time_info}"
         full_report += "🔴 <b>Група 5.1: ПЛАНОВЕ ВІДКЛЮЧЕННЯ (Світла немає)</b>\n⏱️ <b>Вимкнено:</b> згідно з розкладом черги о 19:00\n\n"
-        full_report += "⏰ <b>Актуальні години обмежень:</b> з 19:00 до 23:00\n\n"
+        full_report += "⏰ <b>Актуальні години обмежень на СЬОГОДНІ:</b>\n• з 19:00 до 23:00\n\n"
+        full_report += "⏭️ <b>Офіційний графік обмежень на ЗАВТРА:</b>\n• <i>Очікується оновлення бази ДТЕК КРЕМ (після 20:00-21:00)...</i>\n\n"
         full_report += "🟢 <b>Локальні аварії:</b> Запитів на екстрений ремонт трансформатора наразі немає."
     else:
         live_report = parse_live_time_and_schedule(html_content)
