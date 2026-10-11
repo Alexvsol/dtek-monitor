@@ -2,7 +2,6 @@ import os
 import sys
 import requests
 from datetime import datetime, timedelta
-import json
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
@@ -25,57 +24,16 @@ def send_telegram_message(text):
 
 def get_kyiv_time():
     utc_now = datetime.utcnow()
-    # Точний Київський час
+    # Точний київський час (UTC+3 для літнього сезону)
     kyiv_offset = timedelta(hours=3) 
     return utc_now + kyiv_offset
-
-def get_actual_ukrenergo_schedule():
-    print("Зчитування діючих обмежень з офіційного сервера сповіщень...")
-    
-    # Використовуємо відкритий і стабільний інформ-вузол графіків Київської області
-    # Збираємо адресу по шматочках для обходу внутрішніх фільтрів безпеки GitHub
-    url_p1 = "https://tg."
-    url_p2 = "i-c-u.eu/rss/Ukrenergo"
-    url = url_p1 + url_p2
-    
-    headers = {"User-Agent": "Mozilla/5.0"}
-    
-    try:
-        # Робимо легкий запит до стрічки офіційних розпоряджень щодо черг
-        response = requests.get(f"https://rss2json.com{url}", headers=headers, timeout=20)
-        
-        if response.status_code == 200:
-            data = response.json()
-            items = data.get("items", )
-            if items:
-                # Беремо найсвіжіше офіційне текстове розпорядження Укренерго
-                latest_post = items[0]
-                content = latest_post.get("content", "")
-                
-                import re
-                clean_text = re.sub(r'<[^>]+>', ' ', content)
-                clean_text = " ".join(clean_text.split()).strip()
-                
-                # Шукаємо згадку годин відключень у тексті розпорядження (наприклад, 16:00-24:00)
-                time_match = re.search(r'(\d{2}:\d{2})\s*(?:-|до)\s*(\d{2}:\d{2})', clean_text)
-                
-                if time_match:
-                    return f"• з {time_match.group(1)} до {time_match.group(2)} (згідно з розпорядженням Укренерго на сьогодні)"
-                
-                if len(clean_text) > 200:
-                    return f"• {clean_text[:200]}..."
-                    
-        return "• з 19:00 до 23:00 (діє стандартний вечірній графік обмежень для підгрупи 5.1)"
-    except Exception as e:
-        print(f"Помилка зчитування Укренерго: {e}")
-        return "• з 19:00 до 23:00 (діє поточний стабілізаційний графік обмежень)"
 
 def check_current_power_status():
     now = get_kyiv_time()
     day_of_week = now.weekday()
     hour = now.hour
     
-    # Офіційний похвилинний розклад ДТЕК КРЕМ для Київської області (Підгрупа 5.1)
+    # Офіційна похвилинна матриця відключень ДТЕК КРЕМ для Київської області (Підгрупа 5.1)
     # 1 - Планове відключення (світла немає), 0 - Світло є
     schedule_data = {
         0: "111100001111000011110000",  # Понеділок
@@ -98,11 +56,25 @@ def check_current_power_status():
     else:
         status_text = "🟢 <b>Група 5.1: СВІТЛО Є (Мережа працює в штатному режимі)</b>"
         
-    # Дізнаємося живі години обмежень на сьогодні
-    live_hours = get_actual_ukrenergo_schedule()
+    # Динамічно виводимо години обмежень на сьогодні згідно з календарем підгрупи 5.1
+    outage_periods =
+    start_hour = None
+    for h in range(25):
+        if h < 24 and int(day_string[h]) == 1:
+            if start_hour is None:
+                start_hour = h
+        else:
+            if start_hour is not None:
+                outage_periods.append(f"• з {start_hour:02d}:00 до {h:02d}:00")
+                start_hour = None
+                
+    if outage_periods:
+        live_hours = "\n".join(outage_periods)
+    else:
+        live_hours = "• Сьогодні планових обмежень не передбачено."
     
     report = f"{time_info}{status_text}\n\n"
-    report += f"⏰ <b>Актуальні години обмежень на сьогодні:</b>\n{live_hours}\n\n"
+    report += f"⏰ <b>Актуальний графік обмежень на сьогодні:</b>\n{live_hours}\n\n"
     report += "🟢 <b>Локальні аварії:</b> Запитів на екстрений ремонт трансформатора по вашій вулиці наразі немає."
     
     return report
