@@ -24,7 +24,7 @@ def send_telegram_message(text):
 
 def get_kyiv_time():
     utc_now = datetime.utcnow()
-    # Точний київський час (UTC+3 для літнього сезону)
+    # Точний київський час
     kyiv_offset = timedelta(hours=3) 
     return utc_now + kyiv_offset
 
@@ -56,8 +56,8 @@ def check_current_power_status():
     else:
         status_text = "🟢 <b>Група 5.1: СВІТЛО Є (Мережа працює в штатному режимі)</b>"
         
-    # Динамічно виводимо години обмежень на сьогодні згідно з календарем підгрупи 5.1
-    outage_periods =
+    # Складання списку годин відключень на сьогодні (повернуто квадратні дужки [])
+    outage_periods = []
     start_hour = None
     for h in range(25):
         if h < 24 and int(day_string[h]) == 1:
@@ -87,7 +87,7 @@ def main():
     full_report = f"⚡ <b>МОНІТОРИНГ ЕНЕРГОМЕРЕЖІ (с. Гора)</b>\n📍 вул. Басейна, буд. 7\n\n"
     full_report += check_current_power_status()
 
-    if len(sys.argv) > 1 and sys.argv == "--once":
+    if len(sys.argv) > 1 and sys.argv[1] == "--once":
         print("Запуск ручного тесту...")
         send_telegram_message(full_report)
         return
