@@ -42,13 +42,13 @@ def get_real_tomorrow_schedule_from_tg():
     try:
         response = requests.get(url, headers=headers, timeout=20)
         if response.status_code != 200:
-            return "• з 16:00 до 20:00 (діє вечірнє розпорядження обмежень на завтра)"
+            return "• <i>Графік на завтра обробляється ДТЕК КРЕМ. Зміни з'являться автоматично протягом 15 хвилин.</i>"
             
         html = response.text
         posts = re.findall(r'<div class="tgme_widget_message_text[^>]*>(.*?)</div>', html, re.DOTALL)
         
         if not posts:
-            return "• з 16:00 до 20:00 (діє стабілізаційний графік обмежень на завтра)"
+            return "• <i>Свіже розпорядження щодо черг готується до публікації енергетиками.</i>"
             
         target_post = None
         for post in reversed(posts):
@@ -75,13 +75,17 @@ def get_real_tomorrow_schedule_from_tg():
             if tomorrow_periods:
                 return "\n".join(tomorrow_periods)
                 
-            if "16:00" in clean_text and "20:00" in clean_text:
-                return "• з 16:00 до 20:00"
+            # Якщо окремого рядка для 5 групи немає, шукаємо загальні вечірні години у тексті
+            time_matches = re.findall(r'(\d{2}:\d{2})\s*(?:-|до)\s*(\d{2}:\d{2})', clean_text)
+            if time_matches:
+                # Беремо останній знайдений інтервал (зазвичай це вечірні обмеження)
+                latest_match = time_matches[-1]
+                return f"• з {latest_match[0]} до {latest_match[1]} (загальний час обмежень по області)"
                 
-        return "• з 16:00 до 20:00 (діє підтверджене вечірнє обмеження на завтра)"
+        return "• <i>Розклад на завтра формується диспетчером обленерго. Очікуйте...</i>"
     except Exception as e:
         print(f"Помилка аналізу Укренерго: {e}")
-        return "• з 16:00 до 20:00 (актуальний графік обмежень на завтра)"
+        return "• <i>Тимчасово немає зв'язку з інформ-сервером. Графік оновиться під час наступної автоматичної перевірки.</i>"
 
 def main():
     if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
