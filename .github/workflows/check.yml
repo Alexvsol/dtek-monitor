@@ -2,16 +2,15 @@ name: DTEK Outage Monitor
 
 on:
   schedule:
-    # Автоматичний запуск кожні 15 хвилин
     - cron: '*/15 * * * *'
-  workflow_dispatch: # Дозволяє запускати перевірку вручну кнопкою
+  workflow_dispatch:
 
 jobs:
   check-status:
     runs-on: ubuntu-latest
 
     permissions:
-      contents: write # Права на оновлення файлу статусу в репозиторії
+      contents: write
 
     steps:
     - name: Checkout repository
@@ -24,7 +23,8 @@ jobs:
 
     - name: Install dependencies
       run: |
-        pip install requests
+        pip install playwright requests
+        playwright install chromium
 
     - name: Run monitor script
       env:
