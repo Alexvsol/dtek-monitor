@@ -2,12 +2,14 @@ import os
 import sys
 import requests
 import json
+import re
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 STATUS_FILE = "last_status.txt"
 
 def send_telegram_message(text):
+    # Збираємо адресу технічного API сервера Telegram безпечним шляхом
     p1, p2 = "https://api.", "telegram.org"
     url = f"{p1}{p2}/bot{TELEGRAM_TOKEN}/sendMessage"
     payload = {
@@ -22,85 +24,83 @@ def send_telegram_message(text):
     except Exception as e:
         print(f"Помилка відправки в Telegram: {e}")
 
-def get_latest_dtek_schedule():
-    print("Зчитування актуальних змін графіків ДТЕК КРЕМ...")
+def get_latest_dtek_telegram_post():
+    print("Зчитування оперативних змін безпосередньо з каналу ДТЕК КРЕМ...")
     
-    # Використовуємо стабільний відкритий інформ-шлюз ДТЕК Київські регіональні електромережі
-    url = "https://rss2json.com"
-    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+    # Використовуємо офіційний відкритий веб-віджет Telegram для читання публікацій каналу dtek_krem
+    # Збираємо посилання по шматочках, щоб хмара не зрізала домен
+    link_part1 = "https://t."
+    link_part2 = "me/s/dtek_krem"
+    url = link_part1 + link_part2
+    
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    }
     
     try:
         response = requests.get(url, headers=headers, timeout=20)
         if response.status_code != 200:
-            return "Не вдалося зв'язатися з сервером оновлень графіків."
+            return "Не вдалося отримати доступ до стрічки новин ДТЕК КРЕМ."
             
-        data = response.json()
-        items = data.get("items", [])
+        html = response.text
         
-        if not items:
-            return "Свіжих розпоряджень щодо змін графіків наразі немає."
+        # Витягуємо блоки текстових повідомлень з постів за допомогою регулярного виразу
+        posts = re.findall(r'<div class="tgme_widget_message_text[^>]*>(.*?)</div>', html, re.DOTALL)
+        
+        if not posts:
+            return "На каналі ДТЕК наразі немає свіжих текстових оголошень."
             
-        # Беремо останні 3 публікації, щоб не пропустити екстрені зміни
-        for item in items[:3]:
-            content = item.get("content", "")
-            link = item.get("link", "")
-            
-            # Очищаємо текст від HTML-сміття для аналізу
-            import re
-            clean_text = re.sub(r'<[^>]+>', ' ', content)
-            clean_text = " ".join(clean_text.split())
-            
-            # Перевіряємо, чи цей пост стосується актуальних графіків відключень
-            low_text = clean_text.lower()
-            if any(word in low_text for word in ["графік", "відключен", "укренерго", "обмежен", "черг"]):
-                
-                # Формуємо красивий та зрозумілий вивід для Telegram
-                report = f"📋 <b>АКТУАЛЬНІ ЗМІНИ ГРАФІКА ВІД ДТЕК:</b>\n\n"
-                
-                # Якщо текст занадто довгий, акуратно обрізаємо його до суті
-                if len(clean_text) > 700:
-                    report += f"📝 {clean_text[:700]}...\n\n"
-                else:
-                    report += f"📝 {clean_text}\n\n"
-                    
-                report += f"🔗 <a href='{link}'>Офіційне джерело ДТЕК КРЕМ</a>"
-                return report
-                
-        return "Нових повідомлень про зміну годин відключень немає."
+        # Беремо найостанніший опублікований пост (він знаходиться в самому кінці списку)
+        latest_post_html = posts[-1]
+        
+        # Очищаємо текст від HTML-тегів (<br/>, <a> тощо), замінюючи їх на правильні переноси рядків
+        clean_text = latest_post_html.replace("<br/>", "\n").replace("<br>", "\n")
+        clean_text = re.sub(r'<[^>]+>', '', clean_text)
+        
+        # Декодуємо спеціальні символи, якщо вони є
+        import html as html_parser
+        clean_text = html_parser.unescape(clean_text)
+        
+        # Формуємо повідомлення для вашого бота
+        report = f"📋 <b>ОПЕРАТИВНЕ ОНОВЛЕННЯ ЧАСУ ВІД ДТЕК КРЕМ:</b>\n\n"
+        report += f"{clean_text.strip()}\n\n"
+        report += f"🔗 <a href='https://t.me'>Офіційний канал ДТЕК КРЕМ</a>"
+        
+        return report
         
     except Exception as e:
-        print(f"Помилка аналізу змін: {e}")
-        return "Тимчасовий збій отримання оперативних даних."
+        print(f"Помилка аналізу Telegram-каналу: {e}")
+        return "Тимчасовий збій отримання оперативних графіків."
 
 def main():
     if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
-        print("Критична помилка: секрети не знайдені!")
+        print("Помилка секретів GitHub Settings!")
         sys.exit(1)
 
-    # Режим одиночного ручного тесту
-    if len(sys.argv) > 1 and sys.argv[1] == "--once":
+    # Режим одиночного тесту (--once)
+    if len(sys.argv) > 1 and sys.argv == "--once":
         print("Запуск ручної перевірки оперативних змін...")
-        status = get_latest_dtek_schedule()
+        status = get_latest_dtek_telegram_post()
         send_telegram_message(status)
         return
 
-    # Постійний фоновий моніторинг (крон запускає кожні 15 хвилин)
+    # Постійний фоновий моніторинг (кожні 15 хвилин)
     try:
-        current_status = get_latest_dtek_schedule()
+        current_status = get_latest_dtek_telegram_post()
         
         last_status = ""
         if os.path.exists(STATUS_FILE):
             with open(STATUS_FILE, "r", encoding="utf-8") as f:
                 last_status = f.read().strip()
                 
-        # Робот надсилає повідомлення ТОК ТІЛЬКИ тоді, коли ДТЕК опублікував нові зміни годин
+        # Робот відправляє пуш ТІЛЬКИ тоді, коли ДТЕК опублікував новий пост із коригуванням годин
         if current_status != last_status:
             send_telegram_message(current_status)
             with open(STATUS_FILE, "w", encoding="utf-8") as f:
                 f.write(current_status)
-            print("Оперативні зміни надіслано в чат.")
+            print("Нові оперативні зміни надіслано в чат.")
         else:
-            print("Нових коригувань часу від ДТЕК немає.")
+            print("Нових публікацій з коригуванням часу від ДТЕК немає.")
             
     except Exception as e:
         print(f"Помилка виконання: {e}")
