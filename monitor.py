@@ -1,102 +1,110 @@
 import os
 import sys
 import requests
-import re
+import json
+
+# ------- ВАША АДРЕСА (Київська обл.) -------
+CITY = "Гора"                     # Назва населеного пункту
+STREET = "Басейна"             # Назва вулиці
+HOUSE = "7"                       # Номер будинку
+# -------------------------------------------
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 STATUS_FILE = "last_status.txt"
 
 def send_telegram_message(text):
-    # Збираємо адресу по шматочках, щоб обійти фільтри автоматичної заміни посилань
     part1 = "https://api."
     part2 = "telegram.org"
     full_domain = part1 + part2
-    
     url = f"{full_domain}/bot{TELEGRAM_TOKEN}/sendMessage"
+    
     payload = {
         "chat_id": TELEGRAM_CHAT_ID, 
-        "text": text, 
-        "parse_mode": "Markdown"
+        "text": text,
+        "parse_mode": "HTML"
     }
     try:
         response = requests.post(url, json=payload, timeout=10)
-        # Ці рядки виведуть у лог точний результат спілкування з Telegram
-        print(f"Код відповіді сервера Telegram: {response.status_code}")
-        print(f"Текст відповіді сервера Telegram: {response.text}")
+        print(f"Відповідь сервера Telegram: {response.status_code}")
     except Exception as e:
-        print(f"Помилка під час з'єднання з Telegram API: {e}")
+        print(f"Помилка відправки в Telegram: {e}")
 
-
-def get_dtek_news():
-    print("Отримання новин з офіційного сайту ДТЕК КРЕМ...")
-    # Відкрита сторінка новин, яка не блокує роботів
+def get_current_status():
+    print(f"Запит до API ДТЕК КРЕМ для: с. {CITY}, вул. {STREET}, буд. {HOUSE}")
+    
+    # Використовуємо пряму офіційну URL-адресу обробника графіків
     url = "https://dtek-krem.com.ua"
     
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "X-Requested-With": "XMLHttpRequest",
+        "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8"
     }
     
-    response = requests.get(url, headers=headers, timeout=30)
+    payload = {
+        "method": "getDisconnections",
+        "city": CITY,
+        "street": STREET,
+        "house": HOUSE
+    }
+    
+    response = requests.post(url, data=payload, headers=headers, timeout=25)
+    
     if response.status_code != 200:
-        raise Exception(f"Не вдалося отримати новини ДТЕК: код {response.status_code}")
+        raise Exception(f"Сайт ДТЕК повернув помилку з'єднання: код {response.status_code}")
         
-    html = response.text
+    try:
+        data = response.json()
+    except Exception:
+        raise Exception("Сервер ДТЕК надіслав некоректну відповідь (не JSON)")
+        
+    if not data or "html" not in data:
+        return "Адресу не знайдено в базі даних ДТЕК КРЕМ. Перевірте назву вулиці або міста."
+        
+    html_content = data["html"]
     
-    # Знаходимо заголовки та тексти останніх новин за допомогою регулярних виразів
-    # Шукаємо блоки з класом новин (зазвичай це посилання або блоки новин)
-    news_blocks = re.findall(r'<a[^>]*class="[^"]*news[^"]*"[^>]*>(.*?)</a>', html, re.DOTALL)
+    # Очищаємо отриманий результат від застарілих HTML тегів для виводу чистого тексту
+    import re
+    clean_text = re.sub(r'<[^>]+>', ' ', html_content)
+    clean_text = " ".join(clean_text.split())
     
-    if not news_blocks:
-        # Спроба знайти будь-які блоки з текстом новин, якщо класи інші
-        news_blocks = re.findall(r'<h3>(.*?)</h3>', html, re.DOTALL)
+    if not clean_text.strip() or "не знайдено" in clean_text.lower():
+        return "Світло є (планових або стабілізаційних відключень наразі немає)"
         
-    cleaned_news = []
-    for block in news_blocks[:5]:  # Беремо топ-5 останніх новин
-        text = re.sub(r'<[^>]+>', ' ', block)
-        text = " ".join(text.split())
-        if text:
-            cleaned_news.append(text)
-            
-    if not cleaned_news:
-        return "Не вдалося зчитати стрічку новин ДТЕК."
+    # Якщо опис занадто довгий, витягуємо лише перші корисні речення про графік
+    if len(clean_text) > 400:
+        return clean_text[:400] + "..."
         
-    # Формуємо звіт з останніх новин
-    result = "📋 *Останні новини ДТЕК Київські регіональні електромережі:*\n\n"
-    for idx, news in enumerate(cleaned_news, 1):
-        # Виділяємо важливі слова про відключення
-        if any(word in news.lower() for word in ["відключення", "графік", "обмежен", "світл", "черг"]):
-            result += f"{idx}. ⚠️ *{news}*\n"
-        else:
-            result += f"{idx}. {news}\n"
-            
-    return result
+    return clean_text
 
 def main():
     if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
-        print("Помилка: Перевірте секрети TELEGRAM_TOKEN та TELEGRAM_CHAT_ID у GitHub Settings!")
+        print("Помилка: Секрети TELEGRAM_TOKEN або TELEGRAM_CHAT_ID відсутні в GitHub Settings!")
         sys.exit(1)
 
     try:
-        current_status = get_dtek_news()
-        print(f"Поточний стан стрічки новин:\n{current_status}")
+        current_status = get_current_status()
+        print(f"Поточний статус адреси:\n{current_status}")
         
         last_status = ""
         if os.path.exists(STATUS_FILE):
             with open(STATUS_FILE, "r", encoding="utf-8") as f:
                 last_status = f.read().strip()
         
+        # При першому запуску або зміні статусу надсилаємо пуш
         if current_status != last_status:
-            send_telegram_message(current_status)
+            message = f"<b>🚨 Зміна статусу світла (с. {CITY})</b>\n\n📋 <b>Поточний стан:</b>\n{current_status}"
+            send_telegram_message(message)
             
             with open(STATUS_FILE, "w", encoding="utf-8") as f:
                 f.write(current_status)
-            print("Новини оновлено, сповіщення надіслано в Telegram.")
+            print("Статус змінено. Повідомлення успішно відправлено.")
         else:
-            print("Нових повідомлень на сайті ДТЕК немає.")
+            print("Статус не змінювався з моменту останньої перевірки.")
                 
     except Exception as e:
-        print(f"Помилка: {e}")
+        print(f"Помилка під час виконання: {e}")
         sys.exit(1)
 
 if __name__ == "__main__":
