@@ -13,15 +13,15 @@ TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 STATUS_FILE = "last_status.txt"
 
 def send_telegram_message(text):
-    # Використовуємо офіційне API без текстових доменів у коді
-    api_endpoint = "https://telegram.org"
-    url = f"{api_endpoint}/bot{TELEGRAM_TOKEN}/sendMessage"
+    # Прямий технічний шлях до серверів Telegram без використання сторонніх доменів
+    url = f"https://telegram.org{TELEGRAM_TOKEN}/sendMessage"
     payload = {"chat_id": TELEGRAM_CHAT_ID, "text": text}
     try:
         response = requests.post(url, json=payload, timeout=10)
-        print(f"Відповідь Telegram API: {response.status_code}")
+        print(f"Код відповіді Telegram: {response.status_code}")
+        print(f"Текст відповіді Telegram: {response.text}")
     except Exception as e:
-        print(f"Помилка Telegram: {e}")
+        print(f"Помилка з'єднання з Telegram: {e}")
 
 def get_current_status():
     print(f"Запит до ДТЕК: с. {CITY}, вул. {STREET}, буд. {HOUSE}")
