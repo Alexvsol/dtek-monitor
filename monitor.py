@@ -61,14 +61,14 @@ def extract_hours_by_date_and_group(html_content, date_str):
                 if "5.1" in line:
                     time_match = re.findall(r'(\d{2}:\d{2})\s*(?:-|—|–|до)\s*(\d{2}:\d{2})', line)
                     if time_match:
-                        return "\n".join([f"• з {m} до {m}" for m in time_match])
+                        return "\n".join([f"• з {m[0]} до {m[1]}" for m in time_match])
             
             # Резервний загальний пошук 5 черги
             for line in lines:
                 if any(g in line.lower() for g in ["5 черга", "5 група", "черга 5"]):
                     time_match = re.findall(r'(\d{2}:\d{2})\s*(?:-|—|–|до)\s*(\d{2}:\d{2})', line)
                     if time_match:
-                        return "\n".join([f"• з {m} до {m}" for m in time_match])
+                        return "\n".join([f"• з {m[0]} до {m[1]}" for m in time_match])
     return None
 
 def main():
@@ -81,7 +81,7 @@ def main():
     
     html_content = get_live_channel_text()
     
-    # Прямий динамічний пошук за сьогоднішньою та завтрашньою датою
+    # Динамічний пошук за поточною та наступною датою
     today_str = now.strftime("%d.%m")
     tomorrow_str = (now + timedelta(days=1)).strftime("%d.%m")
     
@@ -93,10 +93,12 @@ def main():
     if not live_tomorrow:
         live_tomorrow = "• з 16:00 до 20:00 (діє затверджений розклад обмежень)"
 
+    # ВІДФІЛЬТРОВАНО: Безпомилкове похвилинне розпакування значень часу з кортежу (tuple)
     is_active_outage = False
-    time_slots = re.findall(r'(\d{2}):\d{2}\s*(?:-|до)\s*(\d{2}):\d{2}', live_today)
+    time_slots = re.findall(r'(\d{2}):\d{2}\s*(?:-|до|—|–)\s*(\d{2}):\d{2}', live_today)
     for slot in time_slots:
-        start_h, end_h = int(slot), int(slot)
+        start_h = int(slot[0])
+        end_h = int(slot[1])
         if start_h <= hour < end_h:
             is_active_outage = True
             break
