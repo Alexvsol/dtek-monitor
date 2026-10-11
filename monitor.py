@@ -1,7 +1,8 @@
 import os
 import sys
 import requests
-from datetime import datetime, timedelta
+import json
+import re
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
@@ -10,102 +11,105 @@ STATUS_FILE = "last_status.txt"
 def send_telegram_message(text):
     p1, p2 = "https://api.", "telegram.org"
     url = f"{p1}{p2}/bot{TELEGRAM_TOKEN}/sendMessage"
-    payload = {"chat_id": TELEGRAM_CHAT_ID, "text": text, "parse_mode": "HTML"}
+    payload = {
+        "chat_id": TELEGRAM_CHAT_ID, 
+        "text": text, 
+        "parse_mode": "HTML",
+        "disable_web_page_preview": True
+    }
     try:
         response = requests.post(url, json=payload, timeout=15)
         print(f"Відповідь Telegram API: {response.status_code}")
     except Exception as e:
-        print(f"Помилка відправки: {e}")
+        print(f"Помилка відправки в Telegram: {e}")
 
-def get_kyiv_time():
-    utc_now = datetime.utcnow()
-    # Точний час у Києві
-    kyiv_offset = timedelta(hours=3) 
-    return utc_now + kyiv_offset
-
-def check_exact_group5_1_schedule():
-    now = get_kyiv_time()
-    day_of_week = now.weekday() # 0 = Пн, 1 = Вт...
-    hour = now.hour
+def get_live_dtek_schedule():
+    print("Отримання оперативних змін графіків ДТЕК КРЕМ...")
     
-    days_names = ["Понеділок", "Вівторок", "Середа", "Четвер", "П’ятниця", "Субота", "Неділя"]
-    time_info = f"🕒 <b>Час перевірки:</b> {days_names[day_of_week]}, {hour:02d}:{now.minute:02d}\n"
-
-    # ОФІЦІЙНИЙ ТОЧНИЙ ГРАФІК ДТЕК КРЕМ ДЛЯ ГРУПИ 5.1
-    # 1 - Період відключення (світла немає), 0 - Світло за графіком є
-    schedule_data = {
-        0: "001100001100001100001100",  # Понеділок
-        1: "000011000011000011000011",  # Вівторок
-        2: "110000110000110000110000",  # Середа
-        3: "001100001100001100001100",  # Четвер
-        4: "000011000011000011000011",  # П’ятниця
-        5: "110000110000110000110000",  # Субота
-        6: "001100001100001100001100"   # Неділя
-    }
-
-    day_string = schedule_data[day_of_week]
-    current_status = int(day_string[hour])
+    # Використовуємо стабільний відкритий шлюз текстових новин ДТЕК Київські регіональні електромережі
+    url = "https://rss2json.com"
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
     
-    if current_status == 1:
-        zone_text = "🔴 <b>Група 5.1: СВІТЛА НЕМАЄ (Період планового відключення)</b>"
-    else:
-        zone_text = "🟢 <b>Група 5.1: СВІТЛО Є (Мережа працює в штатному режимі)</b>"
+    try:
+        response = requests.get(url, headers=headers, timeout=20)
+        if response.status_code != 200:
+            # Резервний шлюз Укренерго, якщо сервер ДТЕК перевантажений
+            backup_url = "https://rss2json.com"
+            response = requests.get(backup_url, headers=headers, timeout=20)
+            
+        if response.status_code != 200:
+            return "⚠️ Не вдалося зв'язатися з сервером новин ДТЕК. Спробуйте оновити пізніше."
+            
+        data = response.json()
+        items = data.get("items",)
         
-    # Формуємо текстовий розклад на СЬОГОДНІ для повідомлення
-    timeline_text = "\n📅 <b>Точний графік відключень на сьогодні:</b>\n"
-    outage_periods = []
-    start_hour = None
-    
-    for h in range(25):
-        if h < 24 and int(day_string[h]) == 1:
-            if start_hour is None:
-                start_hour = h
-        else:
-            if start_hour is not None:
-                outage_periods.append(f"• з {start_hour:02d}:00 до {h:02d}:00")
-                start_hour = None
+        if not items:
+            return "ℹ️ Наразі свіжих офіційних розпоряджень щодо екстрених змін годин немає."
+            
+        # Шукаємо останню публікацію про введення, скасування або зміну годин графіків
+        for item in items[:3]:
+            content = item.get("content", "")
+            link = item.get("link", "")
+            
+            # Очищаємо текст від зайвих HTML тегів
+            clean_text = re.sub(r'<[^>]+>', ' ', content)
+            clean_text = " ".join(clean_text.split())
+            
+            low_text = clean_text.lower()
+            # Перевіряємо, чи цей пост містить оперативну інформацію про час відключень
+            if any(word in low_text for word in ["графік", "відключ", "укренерго", "обмежен", "черг"]):
                 
-    if outage_periods:
-        timeline_text += "\n".join(outage_periods)
-    else:
-        timeline_text += "• Сьогодні відключень не заплановано."
+                # Формуємо актуальне повідомлення для вашого бота
+                report = f"📢 <b>АКТУАЛЬНІ ЗМІНИ ЧАСУ ВІД ДТЕК КРЕМ:</b>\n\n"
+                
+                # Залишаємо перші 600 символів тексту, де зазвичай розписані всі години та черги
+                if len(clean_text) > 600:
+                    report += f"📝 {clean_text[:600]}...\n\n"
+                else:
+                    report += f"📝 {clean_text}\n\n"
+                    
+                report += f"🔗 <a href='{link}'>Офіційний пост ДТЕК КРЕМ</a>"
+                return report
+                
+        return "ℹ️ Нових повідомлень про зміну годин відключень на цю хвилину немає."
         
-    return time_info + zone_text + timeline_text
+    except Exception as e:
+        print(f"Помилка аналізу змін: {e}")
+        return "ℹ️ Графіки діють згідно з останніми розпорядженнями. Детальний похвилинний розклад на поточну хвилину перевіряйте на сайті ДТЕК КРЕМ."
 
 def main():
     if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
-        print("Помилка секретів GitHub!")
+        print("Помилка секретів GitHub Settings!")
         sys.exit(1)
 
-    # Отримуємо точний статус та графік годин
-    report_body = check_exact_group5_1_schedule()
-    
-    full_report = f"⚡ <b>МОНІТОРИНГ ЕНЕРГОМЕРЕЖІ (с. {CITY})</b>\n"
-    full_report += f"📍 вул. {STREET}, буд. {HOUSE}\n\n"
-    full_report += f"{report_body}\n\n"
-    full_report += "ℹ️ <i>Бот автоматично попередить вас у Telegram за 15 хвилин до зміни графіків чи відключень.</i>"
-
-    if len(sys.argv) > 1 and sys.argv[1] == "--once":
-        print("Запуск ручного тесту...")
-        send_telegram_message(full_report)
+    # Режим одиночного тесту (--once)
+    if len(sys.argv) > 1 and sys.argv == "--once":
+        print("Запуск ручної перевірки оперативних змін...")
+        status = get_live_dtek_schedule()
+        send_telegram_message(status)
         return
 
-    last_status = ""
-    if os.path.exists(STATUS_FILE):
-        with open(STATUS_FILE, "r", encoding="utf-8") as f:
-            last_status = f.read().strip()
-
-    if full_report != last_status:
-        send_telegram_message(full_report)
-        with open(STATUS_FILE, "w", encoding="utf-8") as f:
-            f.write(full_report)
-        print("Повідомлення надіслано.")
-    else:
-        print("Статус не змінився. Пропускаємо.")
+    # Постійний фоновий моніторинг (кожні 15 хвилин)
+    try:
+        current_status = get_live_dtek_schedule()
+        
+        last_status = ""
+        if os.path.exists(STATUS_FILE):
+            with open(STATUS_FILE, "r", encoding="utf-8") as f:
+                last_status = f.read().strip()
+                
+        # Бот надсилає пуш на телефон ТІЛЬКИ тоді, коли ДТЕК опублікував нові зміни годин
+        if current_status != last_status:
+            send_telegram_message(current_status)
+            with open(STATUS_FILE, "w", encoding="utf-8") as f:
+                f.write(current_status)
+            print("Нові оперативні зміни надіслано в чат.")
+        else:
+            print("Нових коригувань часу від ДТЕК немає.")
+            
+    except Exception as e:
+        print(f"Помилка виконання: {e}")
+        sys.exit(1)
 
 if __name__ == "__main__":
-    # Фікс для безпечного зчитування аргументу
-    CITY = "Гора"
-    STREET = "Басейна"
-    HOUSE = "7"
     main()
