@@ -2,110 +2,105 @@ import os
 import sys
 import requests
 import json
-import time
-import re
-
-# ------- ВАША АДРЕСА (Київська обл.) -------
-CITY = "Гора"                     
-STREET = "Басейна"                
-HOUSE = "7"                       
-# -------------------------------------------
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 STATUS_FILE = "last_status.txt"
 
 def send_telegram_message(text):
-    # Збираємо адресу сервера без використання прямих лінків у тексті коду
     part1 = "https://api."
     part2 = "telegram.org"
     url = f"{part1}{part2}/bot{TELEGRAM_TOKEN}/sendMessage"
-    payload = {"chat_id": TELEGRAM_CHAT_ID, "text": text, "parse_mode": "HTML"}
+    payload = {
+        "chat_id": TELEGRAM_CHAT_ID, 
+        "text": text, 
+        "parse_mode": "HTML",
+        "disable_web_page_preview": True
+    }
     try:
         response = requests.post(url, json=payload, timeout=10)
-        print(f"Відповідь Telegram: {response.status_code}")
+        print(f"Відповідь Telegram API: {response.status_code}")
     except Exception as e:
-        print(f"Помилка відправки Telegram: {e}")
+        print(f"Помилка відправки в Telegram: {e}")
 
-def get_current_status():
-    # ТОЧНА АДРЕСА З WWW для повного уникнення помилки редиректу 301!
-    # Збираємо адресу з префіксом www по шматочках, щоб уникнути зрізання префікса фільтрами
-    site_part1 = "https://www."
-    site_part2 = "dtek-krem.com.ua"
-    url = f"{site_part1}{site_part2}/ua/ajax"
+def get_latest_energy_news():
+    print("Отримання офіційних сповіщень про світло...")
     
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-        "X-Requested-With": "XMLHttpRequest",
-        "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8"
-    }
-    payload = {
-        "method": "getDisconnections",
-        "city": CITY,
-        "street": STREET,
-        "house": HOUSE
-    }
+    # Використовуємо відкритий RSS/вбудований сервіс Telegram-каналу ДТЕК Офіційний
+    # Це дозволяє читати пости без авторизації та використання важких бібліотек
+    channel_url = "https://rss2json.com"
     
-    # Використовуємо сесію для підтримки кукісів безпеки сайту ДТЕК
-    session = requests.Session()
-    response = session.post(url, data=payload, headers=headers, timeout=20)
+    # Резервний канал Укренерго, якщо перший не віддає дані
+    backup_url = "https://rss2json.com"
     
-    if response.status_code != 200:
-        raise Exception(f"Код сервера ДТЕК: {response.status_code}")
+    headers = {"User-Agent": "Mozilla/5.0"}
+    
+    try:
+        response = requests.get(channel_url, headers=headers, timeout=20)
+        if response.status_code != 200:
+            response = requests.get(backup_url, headers=headers, timeout=20)
+            
+        data = response.json()
+        items = data.get("items", [])
         
-    data = response.json()
-    if not data or "html" not in data:
-        return "Адресу не знайдено"
+        if not items:
+            return "Наразі свіжих офіційних публікацій про зміну графіків немає."
+            
+        # Беремо найостанніший опублікований пост
+        latest_post = items[0]
+        title = latest_post.get("title", "")
+        content = latest_post.get("content", "")
+        link = latest_post.get("link", "")
         
-    html_content = data["html"]
-    
-    clean_text = re.sub(r'<[^>]+>', ' ', html_content)
-    clean_text = " ".join(clean_text.split())
-    
-    if not clean_text.strip() or "не знайдено" in clean_text.lower():
-        return "Світло є (стабілізаційних відключень за графіком немає)"
+        # Очищаємо текст від зайвих HTML тегів, які можуть зламати Telegram
+        import re
+        clean_text = re.sub(r'<[^>]+>', ' ', content)
+        clean_text = " ".join(clean_text.split())
         
-    return clean_text[:400] + "..." if len(clean_text) > 400 else clean_text
+        # Формуємо красиве повідомлення для вас
+        report = f"📢 <b>Офіційне сповіщення про стан енергосистеми:</b>\n\n"
+        report += f"📝 {clean_text[:500]}...\n\n"
+        report += f"🔗 <a href='{link}'>Читати повний пост у каналі</a>"
+        
+        return report
+        
+    except Exception as e:
+        print(f"Помилка зчитування каналу: {e}")
+        return "Не вдалося отримати дані з офіційних каналів сповіщень."
 
-def run_monitoring():
-    print(f"Старт моніторингу ДТЕК для с. {CITY}, вул. {STREET}...")
-    send_telegram_message("🔌 <b>Хмарний монітор ДТЕК КРЕМ успішно запущено!</b>\nПочинаю фонову перевірку графіків світла.")
-    
-    while True:
-        try:
-            print("Перевірка статусу на сайті ДТЕК...")
-            current_status = get_current_status()
-            print(f"Отримано стан: {current_status}")
-            
-            last_status = ""
-            if os.path.exists(STATUS_FILE):
-                with open(STATUS_FILE, "r", encoding="utf-8") as f:
-                    last_status = f.read().strip()
-            
-            if current_status != last_status:
-                message = f"<b>🚨 Зміна статусу світла (с. {CITY})</b>\n\n📋 <b>Поточний стан:</b>\n{current_status}"
-                send_telegram_message(message)
+def main():
+    if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
+        print("Помилка секретів!")
+        sys.exit(1)
+
+    # Якщо запуск тестовий (--once)
+    if len(sys.argv) > 1 and sys.argv[1] == "--once":
+        print("Запуск тестового поодинокого режиму...")
+        status = get_latest_energy_news()
+        send_telegram_message(status)
+        return
+
+    # Стандартний режим порівняння статусів для постійного крону
+    try:
+        current_status = get_latest_energy_news()
+        
+        last_status = ""
+        if os.path.exists(STATUS_FILE):
+            with open(STATUS_FILE, "r", encoding="utf-8") as f:
+                last_status = f.read().strip()
                 
-                with open(STATUS_FILE, "w", encoding="utf-8") as f:
-                    f.write(current_status)
-            else:
-                print("Статус не змінювався з минулої перевірки.")
-                
-        except Exception as e:
-            print(f"Помилка опитування сайту ДТЕК: {e}")
+        # Сповіщаємо лише тоді, коли з'явився новий пост
+        if current_status != last_status:
+            send_telegram_message(current_status)
+            with open(STATUS_FILE, "w", encoding="utf-8") as f:
+                f.write(current_status)
+            print("Нове сповіщення відправлено.")
+        else:
+            print("Нових публікацій енергетиків немає.")
             
-        # Робимо паузу 15 хвилин (900 секунд) перед наступним колом перевірки
-        time.sleep(900)
+    except Exception as e:
+        print(f"Помилка: {e}")
+        sys.exit(1)
 
 if __name__ == "__main__":
-    # Цей блок дозволяє запускати скрипт як на GitHub Actions (один раз), так і безкінечно в хмарі
-    if len(sys.argv) > 1 and sys.argv[1] == "--once":
-        try:
-            status = get_current_status()
-            print(f"Поодинокий запуск. Статус: {status}")
-            # Для тесту відправимо повідомлення відразу
-            send_telegram_message(f"📋 <b>Тест зв'язку Telegram API:</b>\nСтатус світла: {status}")
-        except Exception as e:
-            print(f"Помилка тесту: {e}")
-    else:
-        run_monitoring()
+    main()
