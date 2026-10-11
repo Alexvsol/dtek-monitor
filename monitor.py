@@ -29,7 +29,10 @@ def send_telegram_message(text):
 
 def get_current_status():
     # ТОЧНА АДРЕСА З WWW для повного уникнення помилки редиректу 301!
-    url = "https://dtek-krem.com.ua"
+    # Збираємо адресу з префіксом www по шматочках, щоб уникнути зрізання префікса фільтрами
+    site_part1 = "https://www."
+    site_part2 = "dtek-krem.com.ua"
+    url = f"{site_part1}{site_part2}/ua/ajax"
     
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
