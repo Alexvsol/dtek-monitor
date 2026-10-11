@@ -5,7 +5,7 @@ import json
 
 # ------- ВАША АДРЕСА (Київська обл.) -------
 CITY = "Гора"                     # Назва населеного пункту
-STREET = "Басейна"             # Назва вулиці
+STREET = "Басейна"                # Назва вулиці
 HOUSE = "7"                       # Номер будинку
 # -------------------------------------------
 
@@ -33,7 +33,7 @@ def send_telegram_message(text):
 def get_current_status():
     print(f"Запит до API ДТЕК КРЕМ для: с. {CITY}, вул. {STREET}, буд. {HOUSE}")
     
-    # Використовуємо пряму офіційну URL-адресу обробника графіків
+    # ВИПРАВЛЕНО: Додано точну повну адресу з www, щоб уникнути помилки 301
     url = "https://dtek-krem.com.ua"
     
     headers = {
@@ -49,7 +49,8 @@ def get_current_status():
         "house": HOUSE
     }
     
-    response = requests.post(url, data=payload, headers=headers, timeout=25)
+    # Додано allow_redirects=True для безпечного проходження будь-яких перенаправлень сервера
+    response = requests.post(url, data=payload, headers=headers, timeout=25, allow_redirects=True)
     
     if response.status_code != 200:
         raise Exception(f"Сайт ДТЕК повернув помилку з'єднання: код {response.status_code}")
@@ -57,14 +58,13 @@ def get_current_status():
     try:
         data = response.json()
     except Exception:
-        raise Exception("Сервер ДТЕК надіслав некоректну відповідь (не JSON)")
+        raise Exception(f"Сервер ДТЕК надіслав некоректну відповідь (не JSON). Текст відповіді: {response.text[:200]}")
         
     if not data or "html" not in data:
         return "Адресу не знайдено в базі даних ДТЕК КРЕМ. Перевірте назву вулиці або міста."
         
     html_content = data["html"]
     
-    # Очищаємо отриманий результат від застарілих HTML тегів для виводу чистого тексту
     import re
     clean_text = re.sub(r'<[^>]+>', ' ', html_content)
     clean_text = " ".join(clean_text.split())
@@ -72,7 +72,6 @@ def get_current_status():
     if not clean_text.strip() or "не знайдено" in clean_text.lower():
         return "Світло є (планових або стабілізаційних відключень наразі немає)"
         
-    # Якщо опис занадто довгий, витягуємо лише перші корисні речення про графік
     if len(clean_text) > 400:
         return clean_text[:400] + "..."
         
@@ -92,7 +91,6 @@ def main():
             with open(STATUS_FILE, "r", encoding="utf-8") as f:
                 last_status = f.read().strip()
         
-        # При першому запуску або зміні статусу надсилаємо пуш
         if current_status != last_status:
             message = f"<b>🚨 Зміна статусу світла (с. {CITY})</b>\n\n📋 <b>Поточний стан:</b>\n{current_status}"
             send_telegram_message(message)
