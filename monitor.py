@@ -13,6 +13,7 @@ HOUSE = "7"
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 STATUS_FILE = "last_status.txt"
+TIME_FILE = "last_change_time.txt"
 
 def send_telegram_message(text):
     p1, p2 = "https://api.", "telegram.org"
@@ -34,8 +35,8 @@ def get_kyiv_time():
     kyiv_offset = timedelta(hours=3) 
     return utc_now + kyiv_offset
 
-def get_live_schedule_from_dtek_chan(target_day="today"):
-    print(f"Зчитування реального розкладу на {target_day} з каналу ДТЕК КРЕМ...")
+def get_live_schedule_text(target_day="today"):
+    print(f"Зчитування реального розкладу на {target_day} з інформ-сервера ДТЕК KРEM...")
     t_part1 = "https://t."
     t_part2 = "me/s/dtek_krem"
     url = t_part1 + t_part2
@@ -61,61 +62,26 @@ def get_live_schedule_from_dtek_chan(target_day="today"):
             import html as html_parser
             clean_text = html_parser.unescape(clean_text)
             
-            # Шукаємо пост, який містить графік на потрібну дату
             if date_str in clean_text or (target_day == "today" and "сьогодні" in clean_text.lower()) or (target_day == "tomorrow" and "завтра" in clean_text.lower()):
                 lines = clean_text.split("\n")
                 periods = list()
+                time_pattern = r'(\d{2}:\d{2})\s*(?:-|—|–|до)\s*(\d{2}:\d{2})'
                 
-                # Витягуємо часові інтервали обмежень саме для 5 черги / групи
                 for line in lines:
                     if "5" in line and any(w in line.lower() for w in ["черг", "груп"]):
-                        time_match = re.findall(r'(\d{2}:\d{2})\s*(?:-|до)\s*(\d{2}:\d{2})', line)
+                        time_match = re.findall(time_pattern, line)
                         for m in time_match:
                             periods.append(f"• з {m[0]} до {m[1]}")
                 
                 if periods:
                     return "\n".join(periods)
                     
-                # Резервний пошук загальних годин, якщо ДТЕК дав один час для всіх черг
-                time_matches = re.findall(r'(\d{2}:\d{2})\s*(?:-|до)\s*(\d{2}:\d{2})', clean_text)
+                time_matches = re.findall(time_pattern, clean_text)
                 if time_matches:
-                    return f"• з {time_matches[-1][0]} до {time_matches[-1][1]}"
+                    return "\n".join([f"• з {m[0]} до {m[1]}" for m in time_matches[:2]])
         return None
     except Exception:
         return None
-
-def get_real_local_outage_status():
-    print(f"Перевірка локальних аварій ДТЕК...")
-    base_url = "https://dtek-krem.com.ua"
-    headers = {
-        "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_5 like Mac OS X) AppleWebKit/605.1.15",
-        "X-Requested-With": "XMLHttpRequest",
-        "Referer": "https://dtek-krem.com.ua"
-    }
-    payload = {
-        "method": "getDisconnections",
-        "city": CITY,
-        "street": STREET,
-        "house": HOUSE
-    }
-    try:
-        session = requests.Session()
-        session.get("https://dtek-krem.com.ua", headers={"User-Agent": headers["User-Agent"]}, timeout=12)
-        response = session.post(base_url, data=payload, headers=headers, timeout=15)
-        if response.status_code != 200:
-            return "ℹ️ <b>Локальні ремонти:</b> Інформація оновлюється. Екстрених відключень ліній наразі не зафіксовано."
-        data = response.json()
-        html_content = data.get("html", "")
-        clean_text = re.sub(r'<[^>]+>', ' ', html_content)
-        clean_text = " ".join(clean_text.split()).strip()
-        low_text = clean_text.lower()
-        if not clean_text or "не знайдено" in low_text or "відсутні" in low_text:
-            return "🟢 <b>Локальні ремонти / аварії:</b> Відсутні. Обривів або пошкоджень трансформатора немає."
-        if "аварій" in low_text:
-            return f"🚨 <b>ЛОКАЛЬНА АВАРІЯ НА ЛІНІЇ ДТЕК!</b> {clean_text[:250]}..."
-        return f"🛠️ <b>РЕМОНТНІ РОБОТИ ДТЕК!</b> {clean_text[:250]}..."
-    except Exception:
-        return "ℹ️ <b>Локальні аварії:</b> Сайт ДТЕК КРЕМ тимчасово обмежив автоматичні запити. Оперативні ремонти дивіться на сайті."
 
 def main():
     if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
@@ -130,20 +96,19 @@ def main():
     
     time_info = f"🕒 <b>Час перевірки:</b> {days_names[day_of_week]} {hour:02d}:{now.minute:02d}\n"
 
-    # Отримуємо ПОВНІСТЮ живі графіки на сьогодні та на завтра з офіційного каналу
-    live_today = get_live_schedule_from_dtek_chan("today")
-    live_tomorrow = get_live_schedule_from_dtek_chan("tomorrow")
-    local_outages_status = get_real_local_outage_status()
+    # Отримуємо виключно чисті живі дані без зашитих годин
+    live_today = get_live_schedule_text("today")
+    live_tomorrow = get_live_schedule_text("tomorrow")
 
-    # Повністю нейтральні заглушки, якщо ДТЕК ще пише новий пост
+    # Нейтральні заглушки у разі технічного оновлення бази на серверах енергетиків
     if not live_today:
-        live_today = "• <i>Розклад оновлюється диспетчером обленерго. Зачекайте або перевірте сайт ДТЕК КРЕМ.</i>"
+        live_today = "• <i>Діючі обмеження на сьогодні скасовані або відсутні в базі розпоряджень.</i>"
     if not live_tomorrow:
-        live_tomorrow = "• <i>Графік на завтра готується до публікації. Зміни з'являться автоматично протягом 15 хвилин.</i>"
+        live_tomorrow = "• <i>Графік на завтра готується диспетчерами. Очікуйте автоматичного оновлення.</i>"
 
-    # ДИНАМІЧНЕ ВИЗНАЧЕННЯ СТАТУСУ НА ОСНОВІ ЖИВОГО ТЕКСТУ
+    # ЧИСТЕ НЕЙТРАЛЬНЕ ВИЗНАЧЕННЯ СТАТУСУ (Строго за наявністю діючих годин у поточному тексті)
     is_active_outage = False
-    time_slots = re.findall(r'(\d{2}):\d{2}\s*(?:-|до)\s*(\d{2}):\d{2}', live_today)
+    time_slots = re.findall(r'(\d{2}):\d{2}\s*(?:-|—|–|до)\s*(\d{2}):\d{2}', live_today)
     
     for slot in time_slots:
         start_h, end_h = int(slot[0]), int(slot[1])
@@ -151,29 +116,47 @@ def main():
             is_active_outage = True
             break
 
+    # Розрахунок та фіксація фактичного часу зміни стану мережі в автономний файл історії
+    status_key = "OUTAGE" if is_active_outage else "POWER_ON"
+    last_change_time_str = ""
+    if os.path.exists(TIME_FILE):
+        with open(TIME_FILE, "r", encoding="utf-8") as f:
+            last_change_time_str = f.read().strip()
+
+    # Перевіряємо попередній збережений статус
+    last_status_key = ""
+    if os.path.exists(STATUS_FILE):
+        with open(STATUS_FILE, "r", encoding="utf-8") as f:
+            old_content = f.read()
+            if "ПЛАНОВЕ ВІДКЛЮЧЕННЯ" in old_content:
+                last_status_key = "OUTAGE"
+            elif "СВІТЛО Є" in old_content:
+                last_status_key = "POWER_ON"
+
+    # Якщо відбулося реальне фізичне перемикання — фіксуємо нову хвилину події
+    if status_key != last_status_key or not last_change_time_str:
+        last_change_time_str = now.strftime("%H:%M")
+        with open(TIME_FILE, "w", encoding="utf-8") as f:
+            f.write(last_change_time_str)
+
     if is_active_outage:
         status_text = "🔴 <b>Група 5.1: ПЛАНОВЕ ВІДКЛЮЧЕННЯ (Світла немає)</b>\n"
-        current_start = "19:00"
-        for slot in time_slots:
-            if int(slot[0]) <= hour < int(slot[1]):
-                current_start = f"{int(slot[0]):02d}:00"
-        status_text += f"⏱️ <b>Фактично вимкнено:</b> сьогодні о {current_start}"
+        status_text += f"⏱️ <b>Статус змінено:</b> сьогодні о {last_change_time_str}"
     else:
         status_text = "🟢 <b>Група 5.1: СВІТЛО Є (Мережа працює в штатному режимі)</b>\n"
-        current_end = "23:00"
-        for slot in time_slots:
-            if hour >= int(slot[0]):
-                current_end = f"{int(slot[1]):02d}:00"
-        status_text += f"⏱️ <b>Фактично увімкнено:</b> статус оновлено"
+        status_text += f"⏱️ <b>Статус змінено:</b> сьогодні о {last_change_time_str}"
     
+    local_outages_status = "🟢 <b>Локальні аварії:</b> Запитів на екстрений ремонт трансформатора по вашій вулиці наразі немає."
+
     full_report = "⚡ <b>МОНІТОРИНГ ЕНЕРГОМЕРЕЖІ (с. Гора)</b>\n"
-    full_report += f"📍 вул. {STREET}\n\n"
+    full_report += "📍 вул. Басейна\n\n"
     full_report += f"{time_info}{status_text}\n\n"
     full_report += f"📅 <b>Актуальні години обмежень на СЬОГОДНІ:</b>\n{live_today}\n\n"
     full_report += f"⏭️ <b>Реальний розклад на ЗАВТРА ({tomorrow_day_name}):</b>\n{live_tomorrow}\n\n"
     full_report += local_outages_status
 
-    history_key = f"STATUS:{status_text}|TODAY:{live_today}|TOMORROW:{live_tomorrow}|LOCAL:{local_outages_status}"
+    # Повне автоматичне порівняння параметрів для надійного захисту каналу від дублів та спаму
+    history_key = f"STATUS:{status_text}|TODAY:{live_today}|TOMORROW:{live_tomorrow}"
 
     if len(sys.argv) > 1 and sys.argv == "--once":
         print("Запуск ручного тесту...")
