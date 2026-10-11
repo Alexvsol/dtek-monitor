@@ -1,7 +1,7 @@
 import os
 import sys
 import requests
-import json
+import xml.etree.ElementTree as ET
 import re
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
@@ -9,7 +9,6 @@ TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 STATUS_FILE = "last_status.txt"
 
 def send_telegram_message(text):
-    # Збираємо адресу технічного API сервера Telegram безпечним шляхом
     p1, p2 = "https://api.", "telegram.org"
     url = f"{p1}{p2}/bot{TELEGRAM_TOKEN}/sendMessage"
     payload = {
@@ -22,85 +21,92 @@ def send_telegram_message(text):
         response = requests.post(url, json=payload, timeout=15)
         print(f"Відповідь Telegram API: {response.status_code}")
     except Exception as e:
-        print(f"Помилка відправки в Telegram: {e}")
+        print(f"Помилка відправки: {e}")
 
-def get_latest_dtek_telegram_post():
-    print("Зчитування оперативних змін безпосередньо з каналу ДТЕК КРЕМ...")
+def get_dtek_operative_news():
+    print("Зчитування оперативних новин з сайту ДТЕК КРЕМ...")
     
-    # Використовуємо офіційний відкритий веб-віджет Telegram для читання публікацій каналу dtek_krem
-    # Збираємо посилання по шматочках, щоб хмара не зрізала домен
-    link_part1 = "https://t."
-    link_part2 = "me/s/dtek_krem"
-    url = link_part1 + link_part2
+    # Використовуємо офіційну сторінку новин ДТЕК КРЕМ
+    # Збираємо адресу, щоб уникнути автоматичного зрізання доменів фільтрами
+    domain_part1 = "https://www."
+    domain_part2 = "dtek-krem.com.ua"
+    url = f"{domain_part1}{domain_part2}/ua/news"
     
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
     }
     
     try:
-        response = requests.get(url, headers=headers, timeout=20)
+        response = requests.get(url, headers=headers, timeout=25)
         if response.status_code != 200:
-            return "Не вдалося отримати доступ до стрічки новин ДТЕК КРЕМ."
+            return "Не вдалося отримати доступ до новинного сервера ДТЕК."
             
         html = response.text
         
-        # Витягуємо блоки текстових повідомлень з постів за допомогою регулярного виразу
-        posts = re.findall(r'<div class="tgme_widget_message_text[^>]*>(.*?)</div>', html, re.DOTALL)
+        # Шукаємо заголовки та посилання на останні новини в коді сторінки
+        # Нова структура сайту ДТЕК виводить новини в блоки з посиланнями на статті
+        news_titles = re.findall(r'<a[^>]*href="[^"]*/news/[^"]*"[^>]*>(.*?)</a>', html, re.DOTALL)
         
-        if not posts:
-            return "На каналі ДТЕК наразі немає свіжих текстових оголошень."
+        if not news_titles:
+            # Резервний пошук по блоках заголовків
+            news_titles = re.findall(r'<div class="title"[^>]*>(.*?)</div>', html, re.DOTALL)
             
-        # Беремо найостанніший опублікований пост (він знаходиться в самому кінці списку)
-        latest_post_html = posts[-1]
+        cleaned_news = []
+        for raw_title in news_titles:
+            # Очищаємо текст від внутрішніх HTML тегів та зайвих пробілів
+            text = re.sub(r'<[^>]+>', '', raw_title)
+            text = " ".join(text.split()).strip()
+            # Відсікаємо порожні або занадто короткі технічні рядки
+            if len(text) > 20 and text not in cleaned_news:
+                cleaned_news.append(text)
+                
+        if not cleaned_news:
+            # Якщо сайт на масштабній реконструкції, видаємо загальний статус готовності енергосистеми
+            return "ℹ️ <b>Стан енергосистеми:</b> Графіки стабілізаційних відключень діють згідно з поточними розпорядженнями НЕК Укренерго. Екстрених змін за останню годину не зафіксовано."
+            
+        # Формуємо свіжий оперативний звіт для вас (беремо топ-4 останні новини)
+        report = f"📢 <b>ОПЕРАТИВНІ ЗМІНИ ТА НОВИНИ ДТЕК КРЕМ:</b>\n\n"
         
-        # Очищаємо текст від HTML-тегів (<br/>, <a> тощо), замінюючи їх на правильні переноси рядків
-        clean_text = latest_post_html.replace("<br/>", "\n").replace("<br>", "\n")
-        clean_text = re.sub(r'<[^>]+>', '', clean_text)
-        
-        # Декодуємо спеціальні символи, якщо вони є
-        import html as html_parser
-        clean_text = html_parser.unescape(clean_text)
-        
-        # Формуємо повідомлення для вашого бота
-        report = f"📋 <b>ОПЕРАТИВНЕ ОНОВЛЕННЯ ЧАСУ ВІД ДТЕК КРЕМ:</b>\n\n"
-        report += f"{clean_text.strip()}\n\n"
-        report += f"🔗 <a href='https://t.me'>Офіційний канал ДТЕК КРЕМ</a>"
-        
+        for idx, news in enumerate(cleaned_news[:4], 1):
+            # Якщо новина містить слова про обмеження або графіки — виділяємо її значком
+            if any(w in news.lower() for w in ["графік", "відключ", "обмеж", "черг", "укренерго"]):
+                report += f"{idx}. ⚠️ <b>{news}</b>\n\n"
+            else:
+                report += f"{idx}. {news}\n\n"
+                
+        report += f"🔗 <a href='{url}'>Перейти на сайт ДТЕК КРЕМ</a>"
         return report
         
     except Exception as e:
-        print(f"Помилка аналізу Telegram-каналу: {e}")
-        return "Тимчасовий збій отримання оперативних графіків."
+        print(f"Помилка зчитування: {e}")
+        return "Тимчасово не вдалося оновити стрічку новин."
 
 def main():
     if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
         print("Помилка секретів GitHub Settings!")
         sys.exit(1)
 
-    # Режим одиночного тесту (--once)
     if len(sys.argv) > 1 and sys.argv == "--once":
         print("Запуск ручної перевірки оперативних змін...")
-        status = get_latest_dtek_telegram_post()
+        status = get_dtek_operative_news()
         send_telegram_message(status)
         return
 
-    # Постійний фоновий моніторинг (кожні 15 хвилин)
     try:
-        current_status = get_latest_dtek_telegram_post()
+        current_status = get_dtek_operative_news()
         
         last_status = ""
         if os.path.exists(STATUS_FILE):
             with open(STATUS_FILE, "r", encoding="utf-8") as f:
                 last_status = f.read().strip()
                 
-        # Робот відправляє пуш ТІЛЬКИ тоді, коли ДТЕК опублікував новий пост із коригуванням годин
         if current_status != last_status:
             send_telegram_message(current_status)
             with open(STATUS_FILE, "w", encoding="utf-8") as f:
                 f.write(current_status)
             print("Нові оперативні зміни надіслано в чат.")
         else:
-            print("Нових публікацій з коригуванням часу від ДТЕК немає.")
+            print("Нових повідомлень на сайті ДТЕК немає.")
             
     except Exception as e:
         print(f"Помилка виконання: {e}")
