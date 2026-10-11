@@ -63,19 +63,19 @@ def get_live_schedule_from_tg(target_day="today"):
             
             if date_str in clean_text or (target_day == "today" and "сьогодні" in clean_text.lower()) or (target_day == "tomorrow" and "завтра" in clean_text.lower()):
                 lines = clean_text.split("\n")
-                periods =
+                periods = []
                 
                 for line in lines:
                     if any(w in line.lower() for w in ["5 черг", "5 груп", "п'ята", "п’ята"]):
                         time_match = re.findall(r'(\d{2}:\d{2})\s*(?:-|до)\s*(\d{2}:\d{2})', line)
                         for m in time_match:
-                            periods.append(f"• з {m} до {m}")
+                            periods.append(f"• з {m[0]} до {m[1]}")
                 if periods:
                     return "\n".join(periods)
                     
                 time_matches = re.findall(r'(\d{2}:\d{2})\s*(?:-|до)\s*(\d{2}:\d{2})', clean_text)
                 if time_matches:
-                    return f"• з {time_matches[-1]} до {time_matches[-1]}"
+                    return f"• з {time_matches[-1][0]} до {time_matches[-1][1]}"
         return None
     except Exception:
         return None
@@ -140,18 +140,16 @@ def main():
     live_tomorrow = get_live_schedule_from_tg("tomorrow")
     local_outages_status = get_real_local_outage_status()
 
-    # НЕЙТРАЛЬНІ ЗАГЛУШКИ БЕЗ ЗАШИТОГО ЧАСУ
     if not live_today:
         live_today = "• <i>Розклад оновлюється диспетчером обленерго. Зачекайте або перевірте сайт ДТЕК КРЕМ.</i>"
     if not live_tomorrow:
         live_tomorrow = "• <i>Графік на завтра готується до публікації НЕК Укренерго. Зміни з'являться автоматично.</i>"
 
-    # ДИНАМІЧНЕ ВИЗНАЧЕННЯ СТАТУСУ (На основі живих годин)
     is_active_outage = False
     time_slots = re.findall(r'(\d{2}):\d{2}\s*(?:-|до)\s*(\d{2}):\d{2}', live_today)
     
     for slot in time_slots:
-        start_h, end_h = int(slot), int(slot)
+        start_h, end_h = int(slot[0]), int(slot[1])
         if start_h <= hour < end_h:
             is_active_outage = True
             break
@@ -160,15 +158,15 @@ def main():
         status_text = "🔴 <b>Група 5.1: ПЛАНОВЕ ВІДКЛЮЧЕННЯ (Світла немає)</b>\n"
         current_start = "19:00"
         for slot in time_slots:
-            if int(slot) <= hour < int(slot):
-                current_start = f"{int(slot):02d}:00"
+            if int(slot[0]) <= hour < int(slot[1]):
+                current_start = f"{int(slot[0]):02d}:00"
         status_text += f"⏱️ <b>Фактично вимкнено:</b> сьогодні о {current_start}"
     else:
         status_text = "🟢 <b>Група 5.1: СВІТЛО Є (Мережа працює в штатному режимі)</b>\n"
         current_end = "23:00"
         for slot in time_slots:
-            if hour >= int(slot):
-                current_end = f"{int(slot):02d}:00"
+            if hour >= int(slot[1]):
+                current_end = f"{int(slot[1]):02d}:00"
         status_text += f"⏱️ <b>Фактично увімкнено:</b> статус оновлено"
     
     full_report = "⚡ <b>МОНІТОРИНГ ЕНЕРГОМЕРЕЖІ (с. Гора)</b>\n"
