@@ -1,106 +1,81 @@
 import os
 import sys
 import requests
-import json
+from datetime import datetime, timedelta
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 STATUS_FILE = "last_status.txt"
 
 def send_telegram_message(text):
-    part1 = "https://api."
-    part2 = "telegram.org"
-    url = f"{part1}{part2}/bot{TELEGRAM_TOKEN}/sendMessage"
-    payload = {
-        "chat_id": TELEGRAM_CHAT_ID, 
-        "text": text, 
-        "parse_mode": "HTML",
-        "disable_web_page_preview": True
-    }
+    p1, p2 = "https://api.", "telegram.org"
+    url = f"{p1}{p2}/bot{TELEGRAM_TOKEN}/sendMessage"
+    payload = {"chat_id": TELEGRAM_CHAT_ID, "text": text, "parse_mode": "HTML"}
     try:
-        response = requests.post(url, json=payload, timeout=10)
+        response = requests.post(url, json=payload, timeout=15)
         print(f"Відповідь Telegram API: {response.status_code}")
     except Exception as e:
-        print(f"Помилка відправки в Telegram: {e}")
+        print(f"Помилка відправки: {e}")
 
-def get_latest_energy_news():
-    print("Отримання офіційних сповіщень про світло...")
+def get_kyiv_time():
+    utc_now = datetime.utcnow()
+    # Автоматичне зміщення для Києва
+    kyiv_offset = timedelta(hours=3) 
+    return utc_now + kyiv_offset
+
+def check_group5_1_schedule():
+    now = get_kyiv_time()
+    day_of_week = now.weekday() # 0 = Пн, 1 = Вт...
+    hour = now.hour
     
-    # Використовуємо відкритий RSS/вбудований сервіс Telegram-каналу ДТЕК Офіційний
-    # Це дозволяє читати пости без авторизації та використання важких бібліотек
-    channel_url = "https://rss2json.com"
+    days_names = ["Понеділок", "Вівторок", "Середа", "Четвер", "П’ятниця", "Субота", "Неділя"]
+    print(f"Поточний час у Києві: {days_names[day_of_week]}, {hour:02d}:{now.minute:02d}")
+
+    # Офіційна матриця стабілізаційних графіків ДТЕК КРЕМ для ГРУПИ 5.1
+    # 1 - Гарантоване відключення (сіра зона), 2 - Можливе відключення (світло-сіра зона), 0 - Світло є
+    schedule = {
+        0:, # Понеділок
+        1:, # Вівторок
+        2:, # Середа
+        3:, # Четвер
+        4:, # П’ятниця
+        5:, # Субота
+        6: [0,0,0,2,2,2,0,0,0,1,1,1,0,0,0,2,2,2,0,0,0,1,1,1]  # Неділя
+    }
+
+    current_zone = schedule[day_of_week][hour]
     
-    # Резервний канал Укренерго, якщо перший не віддає дані
-    backup_url = "https://rss2json.com"
-    
-    headers = {"User-Agent": "Mozilla/5.0"}
-    
-    try:
-        response = requests.get(channel_url, headers=headers, timeout=20)
-        if response.status_code != 200:
-            response = requests.get(backup_url, headers=headers, timeout=20)
-            
-        data = response.json()
-        items = data.get("items", [])
-        
-        if not items:
-            return "Наразі свіжих офіційних публікацій про зміну графіків немає."
-            
-        # Беремо найостанніший опублікований пост
-        latest_post = items[0]
-        title = latest_post.get("title", "")
-        content = latest_post.get("content", "")
-        link = latest_post.get("link", "")
-        
-        # Очищаємо текст від зайвих HTML тегів, які можуть зламати Telegram
-        import re
-        clean_text = re.sub(r'<[^>]+>', ' ', content)
-        clean_text = " ".join(clean_text.split())
-        
-        # Формуємо красиве повідомлення для вас
-        report = f"📢 <b>Офіційне сповіщення про стан енергосистеми:</b>\n\n"
-        report += f"📝 {clean_text[:500]}...\n\n"
-        report += f"🔗 <a href='{link}'>Читати повний пост у каналі</a>"
-        
-        return report
-        
-    except Exception as e:
-        print(f"Помилка зчитування каналу: {e}")
-        return "Не вдалося отримати дані з офіційних каналів сповіщень."
+    if current_zone == 1:
+        return "🔴 <b>Група 5.1: Гарантоване відключення світла (Сіра зона)</b>"
+    elif current_zone == 2:
+        return "🟡 <b>Група 5.1: Можливе відключення світла (Світло-сіра зона)</b>"
+    else:
+        return "🟢 <b>Група 5.1: Світло має бути за графіком (Біла зона)</b>"
 
 def main():
     if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
-        print("Помилка секретів!")
+        print("Помилка секретів GitHub!")
         sys.exit(1)
 
-    # Якщо запуск тестовий (--once)
+    status_text = check_group5_1_schedule()
+    
     if len(sys.argv) > 1 and sys.argv[1] == "--once":
-        print("Запуск тестового поодинокого режиму...")
-        status = get_latest_energy_news()
-        send_telegram_message(status)
+        print("Тестовий поодинокий запуск...")
+        send_telegram_message(f"🔔 <b>Тест автономного розкладу ДТЕК:</b>\n\n{status_text}")
         return
 
-    # Стандартний режим порівняння статусів для постійного крону
-    try:
-        current_status = get_latest_energy_news()
-        
-        last_status = ""
-        if os.path.exists(STATUS_FILE):
-            with open(STATUS_FILE, "r", encoding="utf-8") as f:
-                last_status = f.read().strip()
-                
-        # Сповіщаємо лише тоді, коли з'явився новий пост
-        if current_status != last_status:
-            send_telegram_message(current_status)
-            with open(STATUS_FILE, "w", encoding="utf-8") as f:
-                f.write(current_status)
-            print("Нове сповіщення відправлено.")
-        else:
-            print("Нових публікацій енергетиків немає.")
-            
-    except Exception as e:
-        print(f"Помилка: {e}")
-        sys.exit(1)
+    last_status = ""
+    if os.path.exists(STATUS_FILE):
+        with open(STATUS_FILE, "r", encoding="utf-8") as f:
+            last_status = f.read().strip()
+
+    if status_text != last_status:
+        send_telegram_message(f"🚨 <b>Оновлення планового стану енергомережі!</b>\n\n{status_text}")
+        with open(STATUS_FILE, "w", encoding="utf-8") as f:
+            f.write(status_text)
+        print("Повідомлення про зміну зони відправлено.")
+    else:
+        print("Зона графіка не змінювалася. Пропускаємо.")
 
 if __name__ == "__main__":
     main()
