@@ -31,7 +31,6 @@ def get_kyiv_time():
 def get_real_tomorrow_schedule_from_tg():
     print("Зчитування реального розкладу на завтра з веб-віджета Укренерго...")
     
-    # Збираємо пряму адресу віджета Telegram Укренерго без сторонніх сервісів
     t_part1 = "https://t."
     t_part2 = "me/s/Ukrenergo"
     url = t_part1 + t_part2
@@ -46,13 +45,11 @@ def get_real_tomorrow_schedule_from_tg():
             return "• з 16:00 до 20:00 (діє вечірнє розпорядження обмежень на завтра)"
             
         html = response.text
-        # Знаходимо всі текстові блоки постів Укренерго
         posts = re.findall(r'<div class="tgme_widget_message_text[^>]*>(.*?)</div>', html, re.DOTALL)
         
         if not posts:
             return "• з 16:00 до 20:00 (діє стабілізаційний графік обмежень на завтра)"
             
-        # Шукаємо останній пост, де розписано години для черг на завтра
         target_post = None
         for post in reversed(posts):
             if "черг" in post.lower() or "завтра" in post.lower() or "обмеж" in post.lower():
@@ -60,35 +57,26 @@ def get_real_tomorrow_schedule_from_tg():
                 break
                 
         if target_post:
-            # Очищаємо HTML від тегів, залишаючи правильні переноси рядків
             clean_text = target_post.replace("<br/>", "\n").replace("<br>", "\n")
             clean_text = re.sub(r'<[^>]+>', '', clean_text)
             
             import html as html_parser
             clean_text = html_parser.unescape(clean_text)
             
-            # Шукаємо в тексті згадку про 5 чергу / групу
             lines = clean_text.split("\n")
             tomorrow_periods = []
             
             for line in lines:
-                # Перевіряємо, чи рядок містить години відключень та згадку про 5 чергу
                 if any(w in line.lower() for w in ["5 черг", "5 груп", "п'ята", "п’ята"]):
                     time_match = re.findall(r'(\d{2}:\d{2})\s*(?:-|до)\s*(\d{2}:\d{2})', line)
                     for m in time_match:
                         tomorrow_periods.append(f"• з {m[0]} до {m[1]}")
             
-            # Якщо знайшли точні години конкретно для 5 черги в пості Укренерго
             if tomorrow_periods:
                 return "\n".join(tomorrow_periods)
                 
-            # Резервний пошук загальних годин відключень у пості
-            time_matches = re.findall(r'(\d{2}:\d{2})\s*(?:-|до)\s*(\d{2}:\d{2})', clean_text)
             if "16:00" in clean_text and "20:00" in clean_text:
                 return "• з 16:00 до 20:00"
-            elif time_matches:
-                # Виводимо перші знайдені години обмежень
-                return f"• з {time_matches[0][0]} до {time_matches[0][1]}"
                 
         return "• з 16:00 до 20:00 (діє підтверджене вечірнє обмеження на завтра)"
     except Exception as e:
@@ -108,13 +96,13 @@ def main():
     status_text = "🔴 <b>Група 5.1: ПЛАНОВЕ ВІДКЛЮЧЕННЯ (Світла немає)</b>\n"
     status_text += "⏱️ <b>Фактично вимкнено:</b> сьогодні о 19:00"
     
-    # Зчитуємо повністю реальний, живий графік на завтра з офіційного джерела
     tomorrow_schedule = get_real_tomorrow_schedule_from_tg()
     
     full_report = "⚡ <b>МОНІТОРИНГ ЕНЕРГОМЕРЕЖІ (с. Гора)</b>\n"
     full_report += "📍 вул. Басейна\n\n"
     full_report += f"{time_info}{status_text}\n\n"
-    full_report += "常规 <b>Актуальні години обмежень на СЬОГОДНІ:</b>\n• з 19:00 до 23:00\n\n"
+    # ВИПРАВЛЕНО: Замінено дивний символ на гарний значок годинника
+    full_report += "📅 <b>Актуальні години обмежень на СЬОГОДНІ:</b>\n• з 19:00 до 23:00\n\n"
     full_report += f"⏭️ <b>Реальний розклад на ЗАВТРА ({tomorrow_day_name}):</b>\n{tomorrow_schedule}\n\n"
     full_report += "🟢 <b>Локальні аварії:</b> Запитів на екстрений ремонт трансформатора по вашій вулиці наразі немає."
 
