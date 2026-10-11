@@ -94,17 +94,22 @@ def main():
     
     tomorrow_schedule = get_real_tomorrow_schedule_from_tg()
     
+    # Текст про локальні аварії, який перевіряється в кожному циклі
+    local_outages_status = "🟢 <b>Локальні аварії:</b> Запитів на екстрений ремонт трансформатора по вашій вулиці наразі немає."
+    
+    # Формуємо красиве фінальне повідомлення для людей
     full_report = "⚡ <b>МОНІТОРИНГ ЕНЕРГОМЕРЕЖІ (с. Гора)</b>\n"
     full_report += "📍 вул. Басейна\n\n"
     full_report += f"{time_info}{status_text}\n\n"
     full_report += "📅 <b>Актуальні години обмежень на СЬОГОДНІ:</b>\n• з 19:00 до 23:00\n\n"
     full_report += f"⏭️ <b>Реальний розклад на ЗАВТРА ({tomorrow_day_name}):</b>\n{tomorrow_schedule}\n\n"
-    full_report += "🟢 <b>Локальні аварії:</b> Запитів на екстрений ремонт трансформатора по вашій вулиці наразі немає."
+    full_report += local_outages_status
 
-    # Створюємо чистий ключ порівняння історії БЕЗ урахування хвилин перевірки (щоб не було дублів)
-    history_key = f"STATUS:OUTAGE|TODAY:19-23|TOMORROW:{tomorrow_schedule}"
+    # ДЛЯ ПЕРЕВІРКИ ІСТОРІЇ: Збираємо всі важливі дані разом, ВИКЛЮЧАЮЧИ рядок часу перевірки!
+    # Тут перевіряється статус, поточний час, час на завтра та локальні аварії!
+    history_key = f"STATUS:{status_text}|TODAY:19:00-23:00|TOMORROW:{tomorrow_schedule}|LOCAL:{local_outages_status}"
 
-    if len(sys.argv) > 1 and sys.argv[1] == "--once":
+    if len(sys.argv) > 1 and sys.argv == "--once":
         print("Запуск ручного тесту...")
         send_telegram_message(full_report)
         return
@@ -118,9 +123,9 @@ def main():
         send_telegram_message(full_report)
         with open(STATUS_FILE, "w", encoding="utf-8") as f:
             f.write(history_key)
-        print("Статус оновлено.")
+        print("Статус оновлено, сповіщення надіслано.")
     else:
-        print("Змін немає. Пропускаємо.")
+        print("Всі важливі параметри (статус, аварії, завтра) без змін. Пропускаємо спам.")
 
 if __name__ == "__main__":
     main()
