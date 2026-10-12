@@ -44,6 +44,7 @@ def fetch_hours_by_icons(target_date, is_tomorrow=False):
             
         html_content = response.text
         date_str = target_date.strftime("%d.%m")
+        print(html_content)
         
         # Перевіряємо, чи є розклад на цю дату в базі агрегатора
         if date_str not in html_content and target_date.strftime("%d.%m.%Y") not in html_content:
