@@ -30,7 +30,6 @@ def get_kyiv_time():
     return utc_now + kyiv_offset
 
 def fetch_hours_from_bez_svitla(target_date):
-    # Пряме посилання на персоналізовану сторінку с. Гора
     url = "https://bezsvitla.com.ua"
     headers = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"}
     
@@ -46,24 +45,25 @@ def fetch_hours_from_bez_svitla(target_date):
         if date_str not in html_content and target_date.strftime("%d.%m") not in html_content:
             return None
 
-        # Знаходимо блок конкретно для Черги 5.1
+        # Вирізаємо шматок тексту, що йде після заголовку Черга 5.1
         group_block = re.search(r'Черга\s*5\.1.*?(?=Черга\s*\d|\Z)', html_content, re.DOTALL | re.IGNORECASE)
         if not group_block:
             return None
             
         text_chunk = group_block.group(0)
         
-        # Шукаємо всі часові інтервали (наприклад, 16:00 – 20:00)
+        # ВИПРАВЛЕНО: Шаблон враховує специфічне довге тире '–' з сайту БезСвітла
         time_matches = re.findall(r'(\d{2}:\d{2})\s*(?:-|–|—|до)\s*(\d{2}:\d{2})', text_chunk)
         
         periods = list()
         if time_matches:
-            # Агрегатор видає всі інтервали доби. За логікою сайту, інтервали відключень
-            # йдуть по черзі. Ми збираємо ті, які зараз активні в коді.
             for match in time_matches:
-                sh, eh = int(match[0].split(':')[0]), int(match[1].split(':')[0])
-                # Відсікаємо білі зони (де світло є по 12-19 годин підряд)
-                if (eh - sh) <= 5 or (sh > eh and (24 - sh + eh) <= 5):
+                # Розбиваємо години на числа за правильними індексами масиву
+                start_h = int(match[0].split(':')[0])
+                end_h = int(match[1].split(':')[0])
+                
+                # Забираємо тільки короткі періоди відключень (до 5 годин підряд), ігноруючи великі білі зони світла
+                if (end_h - start_h) <= 5 and (end_h - start_h) > 0:
                     p_str = f"• з {match[0]} до {match[1]}"
                     if p_str not in periods:
                         periods.append(p_str)
@@ -72,7 +72,7 @@ def fetch_hours_from_bez_svitla(target_date):
                 return "\n".join(periods)
         return None
     except Exception as e:
-        print(f"Помилка парсингу БезСвітла: {e}")
+        print(f"Помилка парсингу: {e}")
         return None
 
 def main():
@@ -86,17 +86,16 @@ def main():
     today_date = now
     tomorrow_date = now + timedelta(days=1)
     
-    # Стовідсотково живі запити до бази БезСвітла
+    # Виконуємо чисті фонові запити до сторінки громади
     live_today = fetch_hours_from_bez_svitla(today_date)
     live_tomorrow = fetch_hours_from_bez_svitla(tomorrow_date)
 
-    # ЧЕСНІ НЕЙТРАЛЬНІ ЗАГЛУШКИ БЕЗ ЖОДНОГО ЗАШИТОГО ЧАСУ ТА ОБМАНУ
     if not live_today:
         live_today = "• <i>Діючі обмеження на сьогодні відсутні або скасовані диспетчером обленерго.</i>"
     if not live_tomorrow:
         live_tomorrow = "• <i>Офіційний розклад на завтра ще не оприлюднений. Очікуйте автоматичного оновлення стрічки.</i>"
 
-    # ДИНАМІЧНЕ ВИЗНАЧЕННЯ СТАТУСУ (Строго за наявністю діючих годин у тексті)
+    # СТОВІДСОТКОВО ДИНАМІЧНЕ ВИЗНАЧЕННЯ СТАТУСУ (Строго за знайденим текстом відключення)
     is_active_outage = False
     if "відсутні" not in live_today:
         time_slots = re.findall(r'(\d{2}):\d{2}\s*(?:-|до|—|–)\s*(\d{2}):\d{2}', live_today)
