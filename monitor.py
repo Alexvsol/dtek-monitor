@@ -30,7 +30,7 @@ def get_kyiv_time():
     return utc_now + kyiv_offset
 
 def fetch_hours_by_icons(target_date, is_tomorrow=False):
-    # Пряме стабільне посилання на похвилинний графік с. Гора
+    # Пряма точна адреса похвилинного розкладу с. Гора
     url = "https://bezsvitla.com.ua"
     if is_tomorrow:
         url = "https://bezsvitla.com.ua?day=tomorrow"
@@ -45,7 +45,7 @@ def fetch_hours_by_icons(target_date, is_tomorrow=False):
         html_content = response.text
         date_str = target_date.strftime("%d.%m")
         
-        # Перевіряємо актуальність дати на сторінці (якщо дати немає — розклад на цей день ще не готовий)
+        # Перевіряємо, чи є розклад на цю дату в базі агрегатора
         if date_str not in html_content and target_date.strftime("%d.%m.%Y") not in html_content:
             return None
 
@@ -56,20 +56,18 @@ def fetch_hours_by_icons(target_date, is_tomorrow=False):
             
         text_chunk = group_block.group(0)
         
-        # Розбиваємо блок на окремі слоти за тегом <div
-        slots = re.findall(r'<div[^>]*>.*?</div>\s*</div>', text_chunk, re.DOTALL)
-        
+        # ПРЯМОЛІНІЙНА ЛОГІКА: Розбиваємо HTML-блок просто по рядках сторінки
+        lines = text_chunk.split("\n")
         periods = list()
-        for slot in slots:
-            # ЗНАХОДИМО ГОДИНИ: витягуємо час формату ХХ:ХХ – ХХ:ХХ
-            time_match = re.search(r'(\d{2}:\d{2})\s*(?:-|–|—|до)\s*(\d{2}:\d{2})', slot)
-            
-            if time_match:
-                hours_str = time_match.group(0).replace("–", "-").replace("—", "-")
-                
-                # КРИТЕРІЙ ВІДБОРУ: Якщо всередині цього вікна є іконка знаку оклику — це 100% ВІДКЛЮЧЕННЯ
-                if "bi-exclamation-triangle-fill" in slot or "bg-dark" in slot:
-                    p_str = f"• з {hours_str.split('-')[0].strip()} до {hours_str.split('-')[1].strip()}"
+        
+        for line in lines:
+            # КРИТЕРІЙ ВІДБОРУ: Якщо в цьому рядку є іконка трикутника відключення (або темний клас тла)
+            if "bi-exclamation-triangle-fill" in line or "bg-dark" in line:
+                # Витягуємо чисті години відключення формату ХХ:ХХ - ХХ:ХХ
+                time_match = re.search(r'(\d{2}:\d{2})\s*(?:-|–|—|до)\s*(\d{2}:\d{2})', line)
+                if time_match:
+                    hours_str = time_match.group(0).replace("–", "-").replace("—", "-")
+                    p_str = f"• з {hours_str.split('-').strip()} до {hours_str.split('-').strip()}"
                     if p_str not in periods:
                         periods.append(p_str)
                         
@@ -92,23 +90,23 @@ def main():
     today_date = now
     tomorrow_date = now + timedelta(days=1)
     
-    # Зчитуємо графіки, орієнтуючись строго на графічні іконки сайту БезСвітла
+    # Зчитуємо стабілізаційні графіки за реальними графічними іконками БезСвітла
     live_today = fetch_hours_by_icons(today_date, is_tomorrow=False)
     live_tomorrow = fetch_hours_by_icons(tomorrow_date, is_tomorrow=True)
 
-    # Чесні нейтральні заглушки без жодного обману
+    # Чесні нейтральні заглушки без жодного обману в тексті
     if not live_today:
         live_today = "• <i>Діючі обмеження на сьогодні відсутні або скасовані диспетчером обленерго.</i>"
     if not live_tomorrow:
         live_tomorrow = "• <i>Офіційний розклад на завтра ще не оприлюднений. Очікуйте автоматичного оновлення стрічки.</i>"
 
-    # СТОВІДСОТКОВО ДИНАМІЧНЕ ВИЗНАЧЕННЯ СТАТУСУ (Строго за годинами знайдених трикутників відключень!)
+    # СТОВІДСОТКОВО ДИНАМІЧНЕ ВИЗНАЧЕННЯ СТАТУСУ (Строго за годинами знайдених іконок відключень!)
     is_active_outage = False
     if "відсутні" not in live_today:
         time_slots = re.findall(r'(\d{2}):\d{2}\s*(?:-|до|—|–)\s*(\d{2}):\d{2}', live_today)
         for slot in time_slots:
-            start_h = int(slot[0])
-            end_h = int(slot[1])
+            start_h = int(slot)
+            end_h = int(slot)
             if start_h <= hour < end_h:
                 is_active_outage = True
                 break
@@ -138,7 +136,7 @@ def main():
         status_text += f"⏱️ <b>Статус змінено:</b> сьогодні о {last_change_time_str}"
     else:
         status_text = "🟢 <b>Група 5.1: СВІТЛО Є (Мережа працює в штатному режимі)</b>\n"
-        status_text += f"⏱️ <b>Статус змінено:</b> сьогодні о {last_change_time_str}"
+        status_text += f"⏱️ <b>Статус змінено:</b> oggi о {last_change_time_str}"
     
     days_names = ["Понеділок", "Вівторок", "Середа", "Четвер", "П’ятниця", "Субота", "Неділя"]
     tomorrow_day_name = days_names[(day_of_week + 1) % 7]
@@ -164,7 +162,7 @@ def main():
         send_telegram_message(full_report)
         with open(STATUS_FILE, "w", encoding="utf-8") as f:
             f.write(history_key)
-        print("Статус оновлено, повідомлення надіслано.")
+        print("Статус оновлено.")
     else:
         print("Змін немає. Пропускаємо.")
 
