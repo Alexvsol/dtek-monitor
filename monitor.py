@@ -42,9 +42,6 @@ def fetch_hours_from_bez_svitla(target_date, is_tomorrow=False):
             return None
             
         html_content = response.text
-        
-        if is_tomorrow and "ще не опублікований" in html_content:
-            return None
 
         # КРОК 1: Знаходимо точну позицію початку розкладу Черги 5.1 на сторінці
         # Шукаємо саме заголовок "Черга 5.1" у блоці графіків населеного пункту
