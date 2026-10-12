@@ -30,7 +30,6 @@ def get_kyiv_time():
     return utc_now + kyiv_offset
 
 def get_live_channel_text():
-    # Перемикаємося на офіційну текстову стрічку Укренерго
     link_p1 = "https://t."
     link_p2 = "me/s/Ukrenergo"
     url = link_p1 + link_p2
@@ -68,7 +67,6 @@ def extract_exact_hours_by_logic(html_content, target_date, day_keyword):
         low_text = clean_text.lower()
         
         start_index = -1
-        # КРОК 1: Шукаємо точку входу по даті
         for variant in search_variants:
             if variant.lower() in low_text:
                 start_index = low_text.find(variant.lower())
@@ -78,30 +76,29 @@ def extract_exact_hours_by_logic(html_content, target_date, day_keyword):
             fresh_chunk = clean_text[start_index:]
             lines = fresh_chunk.split("\n")
             
-            # КРОК 2: Точно локалізуємо початок списку черг Київської області
+            # ВИПРАВЛЕНО: Шукаємо строго і просто слово "Київська"
             kyiv_line_index = -1
             for idx, line in enumerate(lines):
-                # Пропускаємо заголовки компаній та столицю
-                if "київськ" in line.lower():
+                if "київська" in line.lower():
                     kyiv_line_index = idx
                     break
             
-            # КРОК 3: У знайденому блоці витягуємо чистий текст рядка 5 черги
             if kyiv_line_index != -1:
                 sub_block = lines[kyiv_line_index:kyiv_line_index + 12]
                 
                 # Пошук підгрупи 5.1
                 for line in sub_block:
                     if "5.1" in line:
-                        clean_line = line.strip().replace("•", "").strip()
-                        return f"• {clean_line}"
+                        time_match = re.findall(r'(\d{2}:\d{2})\s*(?:-|—|–|до)\s*(\d{2}:\d{2})', line)
+                        if time_match:
+                            return "\n".join([f"• з {m} до {m}" for m in time_match])
                             
-                # Резервний пошук загальної 5 черги
+                # Резервний пошук 5 черги
                 for line in sub_block:
                     if any(g in line.lower() for g in ["5 черга", "5 група", "черга 5"]):
-                        clean_line = line.strip().replace("•", "").strip()
-                        return f"• {clean_line}"
-                            
+                        time_match = re.findall(r'(\d{2}:\d{2})\s*(?:-|—|–|до)\s*(\d{2}:\d{2})', line)
+                        if time_match:
+                            return "\n".join([f"• з {m} до {m}" for m in time_match])
     return None
 
 def main():
@@ -121,19 +118,19 @@ def main():
     live_tomorrow = extract_exact_hours_by_logic(html_content, tomorrow_date, "завтра")
 
     if not live_today:
-        live_today = "• <i>Обмеження на сьогодні відсутні або скасовані диспетчером обленерго.</i>"
+        live_today = "• <i>Діючі обмеження на сьогодні відсутні або скасовані диспетчером обленерго.</i>"
     if not live_tomorrow:
         live_tomorrow = "• <i>Графік на завтра формується. Зміни з'являться автоматично протягом 15 хвилин.</i>"
 
-    # ДИНАМІЧНЕ ВИЗНАЧЕННЯ СТАТУСУ НА ОСНОВІ ЖИВОГО ТЕКСТУ
     is_active_outage = False
-    time_slots = re.findall(r'(\d{2}):\d{2}\s*(?:-|до|—|–)\s*(\d{2}):\d{2}', live_today)
-    for slot in time_slots:
-        start_h = int(slot[0])
-        end_h = int(slot[1])
-        if start_h <= hour < end_h:
-            is_active_outage = True
-            break
+    if "до" in live_today or "з" in live_today:
+        time_slots = re.findall(r'(\d{2}):\d{2}\s*(?:-|до|—|–)\s*(\d{2}):\d{2}', live_today)
+        for slot in time_slots:
+            start_h = int(slot[0])
+            end_h = int(slot[1])
+            if start_h <= hour < end_h:
+                is_active_outage = True
+                break
 
     status_key = "OUTAGE" if is_active_outage else "POWER_ON"
     last_change_time_str = ""
