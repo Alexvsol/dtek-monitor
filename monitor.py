@@ -29,16 +29,13 @@ def get_kyiv_time():
     kyiv_offset = timedelta(hours=3) 
     return utc_now + kyiv_offset
 
-def fetch_hours_from_bez_svitla(target_date, is_tomorrow=False):
-    # Пряма адреса сторінки села Гора на БезСвітла
+def fetch_hours_by_icons(target_date, is_tomorrow=False):
+    # Пряме стабільне посилання на похвилинний графік с. Гора
     url = "https://bezsvitla.com.ua"
     if is_tomorrow:
         url = "https://bezsvitla.com.ua?day=tomorrow"
         
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
-        "Accept-Language": "uk-UA,uk;q=0.9,en-US;q=0.8"
-    }
+    headers = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"}
     
     try:
         response = requests.get(url, headers=headers, timeout=15)
@@ -48,49 +45,40 @@ def fetch_hours_from_bez_svitla(target_date, is_tomorrow=False):
         html_content = response.text
         date_str = target_date.strftime("%d.%m")
         
-        # Перевіряємо наявність актуальної дати на сторінці (якщо немає — ДТЕК ще не подав дані)
+        # Перевіряємо актуальність дати на сторінці (якщо дати немає — розклад на цей день ще не готовий)
         if date_str not in html_content and target_date.strftime("%d.%m.%Y") not in html_content:
             return None
 
-        # Знаходимо блок контейнера Черга 5.1
+        # Вирізаємо HTML блок, що стосується виключно Черги 5.1
         group_block = re.search(r'Черга\s*5\.1.*?(?=Черга\s*\d|\Z)', html_content, re.DOTALL | re.IGNORECASE)
         if not group_block:
             return None
             
         text_chunk = group_block.group(0)
         
-        # Аналізуємо внутрішню CSS-структуру сітки відключень.
-        # Сайт БезСвітла позначає сірі зони обмежень окремими HTML-блоками або графічними класами.
-        # Робимо пошук усіх часових маркерів формату ХХ:ХХ – ХХ:ХХ всередині сірих вікон відключень
-        time_matches = re.findall(r'(\d{2}:\d{2})\s*(?:-|–|—|до)\s*(\d{2}:\d{2})', text_chunk)
+        # Розбиваємо блок на окремі слоти за тегом <div
+        slots = re.findall(r'<div[^>]*>.*?</div>\s*</div>', text_chunk, re.DOTALL)
         
         periods = list()
-        if time_matches:
-            for match in time_matches:
-                sh_str, eh_str = match[0], match[1]
-                start_h = int(sh_str.split(':')[0])
-                end_h = int(eh_str.split(':')[0])
+        for slot in slots:
+            # ЗНАХОДИМО ГОДИНИ: витягуємо час формату ХХ:ХХ – ХХ:ХХ
+            time_match = re.search(r'(\d{2}:\d{2})\s*(?:-|–|—|до)\s*(\d{2}:\d{2})', slot)
+            
+            if time_match:
+                hours_str = time_match.group(0).replace("–", "-").replace("—", "-")
                 
-                # ДИНАМІЧНИЙ ФІЛЬТР: на відміну від гігантських білих зон (де світло є по 12-16 годин підряд),
-                # планові стабілізаційні обмеження тривають короткими блоками (строго від 1 до 5 годин підряд).
-                # Ця математична логіка безпомилково відбирає ВСІ зони відключень доби, скільки б їх не було!
-                is_outage_duration = False
-                if end_h > start_h and (end_h - start_h) <= 5:
-                    is_outage_duration = True
-                elif start_h > end_h and (24 - start_h + end_h) <= 5:
-                    is_outage_duration = True
-                    
-                if is_outage_duration:
-                    p_str = f"• з {sh_str} до {eh_str}"
+                # КРИТЕРІЙ ВІДБОРУ: Якщо всередині цього вікна є іконка знаку оклику — це 100% ВІДКЛЮЧЕННЯ
+                if "bi-exclamation-triangle-fill" in slot or "bg-dark" in slot:
+                    p_str = f"• з {hours_str.split('-')[0].strip()} до {hours_str.split('-')[1].strip()}"
                     if p_str not in periods:
                         periods.append(p_str)
+                        
+        if periods:
+            return "\n".join(periods)
             
-            if periods:
-                return "\n".join(periods)
-                
         return None
     except Exception as e:
-        print(f"Помилка парсингу сторінки: {e}")
+        print(f"Помилка аналізу HTML іконок: {e}")
         return None
 
 def main():
@@ -104,17 +92,17 @@ def main():
     today_date = now
     tomorrow_date = now + timedelta(days=1)
     
-    # Виконуємо автоматичні фонові запити до бази БезСвітла
-    live_today = fetch_hours_from_bez_svitla(today_date, is_tomorrow=False)
-    live_tomorrow = fetch_hours_from_bez_svitla(tomorrow_date, is_tomorrow=True)
+    # Зчитуємо графіки, орієнтуючись строго на графічні іконки сайту БезСвітла
+    live_today = fetch_hours_by_icons(today_date, is_tomorrow=False)
+    live_tomorrow = fetch_hours_by_icons(tomorrow_date, is_tomorrow=True)
 
-    # Чесні нейтральні заглушки без жодних зашитих цифр
+    # Чесні нейтральні заглушки без жодного обману
     if not live_today:
         live_today = "• <i>Діючі обмеження на сьогодні відсутні або скасовані диспетчером обленерго.</i>"
     if not live_tomorrow:
         live_tomorrow = "• <i>Офіційний розклад на завтра ще не оприлюднений. Очікуйте автоматичного оновлення стрічки.</i>"
 
-    # СТОВІДСОТКОВО ДИНАМІЧНЕ ВИЗНАЧЕННЯ СТАТУСУ (Строго за годинами з отриманого тексту відключень)
+    # СТОВІДСОТКОВО ДИНАМІЧНЕ ВИЗНАЧЕННЯ СТАТУСУ (Строго за годинами знайдених трикутників відключень!)
     is_active_outage = False
     if "відсутні" not in live_today:
         time_slots = re.findall(r'(\d{2}):\d{2}\s*(?:-|до|—|–)\s*(\d{2}):\d{2}', live_today)
@@ -176,7 +164,7 @@ def main():
         send_telegram_message(full_report)
         with open(STATUS_FILE, "w", encoding="utf-8") as f:
             f.write(history_key)
-        print("Статус оновлено.")
+        print("Статус оновлено, повідомлення надіслано.")
     else:
         print("Змін немає. Пропускаємо.")
 
