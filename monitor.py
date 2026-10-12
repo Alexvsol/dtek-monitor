@@ -31,9 +31,9 @@ def get_kyiv_time():
 
 def fetch_hours_by_icons(target_date, is_tomorrow=False):
     # Пряма точна адреса похвилинного розкладу с. Гора
-    url = "https://bezsvitla.com.ua"
+    url = "https://bezsvitla.com.ua/kyivska-oblast/girska-hromada/gora"
     if is_tomorrow:
-        url = "https://bezsvitla.com.ua?day=tomorrow"
+        url = "https://bezsvitla.com.ua/kyivska-oblast/girska-hromada/gora/grafik-na-zavtra"
         
     headers = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"}
     
