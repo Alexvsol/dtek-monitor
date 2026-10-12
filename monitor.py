@@ -58,6 +58,7 @@ def fetch_hours_from_bez_svitla(target_date, is_tomorrow=False):
         # КРОК 2: Послідовно зчитуємо часові інтервали та їхній статус відключення
         # Витягуємо блоки: спочатку час bz-schedule-slot__time, потім шматок коду з його іконкою стану
         slots = re.findall(r'(\d{2}:\d{2})\s*(?:-|–|—|до)\s*(\d{2}:\d{2})(.*?)(?=<span class="bz-schedule-slot__time"|<h2>|<h3>|\Z)', search_zone, re.DOTALL)
+        print(slots)
         
         periods = list()
         for slot in slots:
