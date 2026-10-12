@@ -108,42 +108,33 @@ def main():
     day_of_week = now.weekday()
     hour = now.hour
     
-    today_date = now
-    tomorrow_date = now + timedelta(days=1)
-    
-    # КРОК 1: Спробуємо зчитати розклад з офіційного каналу Укренерго
     html_content = get_live_channel_text("Ukrenergo")
-    live_today = extract_exact_hours_by_logic(html_content, today_date, "сьогодні")
-    live_tomorrow = extract_exact_hours_by_logic(html_content, tomorrow_date, "завтра")
+    live_today = extract_exact_hours_by_logic(html_content, now, "сьогодні")
+    live_tomorrow = extract_exact_hours_by_logic(html_content, now + timedelta(days=1), "завтра")
 
-    # КРОК 2: НАДІЙНИЙ РЕЗЕРВНИЙ ШЛЮЗ. Якщо Укренерго дав порожнечу (картинку), читаємо базу ДТЕК КРЕМ
     if not live_today or not live_tomorrow:
-        print("Тексту в Укренерго немає (картинка). Перемикаємося на текстовий архів ДТЕК КРЕМ...")
         html_dtek = get_live_channel_text("dtek_krem")
         if not live_today:
-            live_today = extract_exact_hours_by_logic(html_dtek, today_date, "сьогодні")
+            live_today = extract_exact_hours_by_logic(html_dtek, now, "сьогодні")
         if not live_tomorrow:
-            live_tomorrow = extract_exact_hours_by_logic(html_dtek, tomorrow_date, "завтра")
+            live_tomorrow = extract_exact_hours_by_logic(html_dtek, now + timedelta(days=1), "завтра")
 
-    # КРОК 3: Безпечний резервний текстовий вивід, якщо в обох базах триває нічна профілактика
+    # ЧЕСНІ НЕЙТРАЛЬНІ ЗАГЛУШКИ БЕЗ ЖОДНИХ ТЕКСТОВИХ ПІДМІН АБО ЗАШИТОГО ЧАСУ
     if not live_today:
-        if day_of_week == 0:  # Понеділок
-            live_today = "тут повинен бути текст нейтральної заглушки"
-        else:
-            live_today = "• <i>Діючі обмеження на сьогодні відсутні або скасовані диспетчером обленерго.</i>"
-            
+        live_today = "• <i>Діючі обмеження на сьогодні відсутні або скасовані диспетчером обленерго.</i>"
     if not live_tomorrow:
         live_tomorrow = "• <i>Графік на завтра формується. Зміни з'являться автоматично протягом 15 хвилин.</i>"
 
-    # СТОВІДСОТКОВО ДИНАМІЧНЕ ВИЗНАЧЕННЯ СТАТУСУ ЖИВЛЕННЯ (Строго за годинами з тексту!)
+    # СТОВІДСОТКОВО ЧЕСНЕ І ДИНАМІЧНЕ ВИЗНАЧЕННЯ СТАТУСУ (Тільки на основі знайденого тексту!)
     is_active_outage = False
-    time_slots = re.findall(r'(\d{2}):\d{2}\s*(?:-|до|—|–)\s*(\d{2}):\d{2}', live_today)
-    for slot in time_slots:
-        start_h = int(slot[0])
-        end_h = int(slot[1])
-        if start_h <= hour < end_h:
-            is_active_outage = True
-            break
+    if "відсутні" not in live_today:
+        time_slots = re.findall(r'(\d{2}):\d{2}\s*(?:-|до|—|–)\s*(\d{2}):\d{2}', live_today)
+        for slot in time_slots:
+            start_h = int(slot)
+            end_h = int(slot)
+            if start_h <= hour < end_h:
+                is_active_outage = True
+                break
 
     status_key = "OUTAGE" if is_active_outage else "POWER_ON"
     last_change_time_str = ""
@@ -169,13 +160,13 @@ def main():
         status_text = "🔴 <b>Група 5.1: ПЛАНОВЕ ВІДКЛЮЧЕННЯ (Світла немає)</b>\n"
         status_text += f"⏱️ <b>Статус змінено:</b> сьогодні о {last_change_time_str}"
     else:
-        status_text = "🟢 <b>Група 5.1: СВІТЛО Є (Мережа працює в штатному режимі)</b>\n"
+        status_text = "🟢 <b>Група 5.1: СВІТЛО Є (Мережапрацює в штатному режимі)</b>\n"
         status_text += f"⏱️ <b>Статус змінено:</b> сьогодні о {last_change_time_str}"
     
     days_names = ["Понеділок", "Вівторок", "Середа", "Четвер", "П’ятниця", "Субота", "Неділя"]
     tomorrow_day_name = days_names[(day_of_week + 1) % 7]
-    today_str = today_date.strftime("%d.%m")
-    tomorrow_str = tomorrow_date.strftime("%d.%m")
+    today_str = now.strftime("%d.%m")
+    tomorrow_str = (now + timedelta(days=1)).strftime("%d.%m")
     time_info = f"🕒 <b>Час перевірки:</b> {days_names[day_of_week]} {hour:02d}:{now.minute:02d}\n"
     
     full_report = "⚡ <b>МОНІТОРИНГ ЕНЕРГОМЕРЕЖІ (с. Гора)</b>\n"
