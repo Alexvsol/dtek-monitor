@@ -30,8 +30,9 @@ def get_kyiv_time():
     return utc_now + kyiv_offset
 
 def get_live_channel_text():
+    # Перемикаємося на офіційну текстову стрічку Укренерго
     link_p1 = "https://t."
-    link_p2 = "me/s/dtek_krem"
+    link_p2 = "me/s/Ukrenergo"
     url = link_p1 + link_p2
     headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
     try:
@@ -67,6 +68,7 @@ def extract_exact_hours_by_logic(html_content, target_date, day_keyword):
         low_text = clean_text.lower()
         
         start_index = -1
+        # КРОК 1: Шукаємо точку входу по даті
         for variant in search_variants:
             if variant.lower() in low_text:
                 start_index = low_text.find(variant.lower())
@@ -76,26 +78,27 @@ def extract_exact_hours_by_logic(html_content, target_date, day_keyword):
             fresh_chunk = clean_text[start_index:]
             lines = fresh_chunk.split("\n")
             
-            # ВИПРАВЛЕНО: Шукаємо виключно Київську область (київськ) або абревіатуру ДТЕК КРЕМ. Місто Київ повністю ігнорується!
+            # КРОК 2: Точно локалізуємо початок списку черг Київської області
             kyiv_line_index = -1
             for idx, line in enumerate(lines):
-                # Якщо рядок містить згадку столиці "м. київ" або просто "місто київ" — пропускаємо його
-                if "м. київ" in line.lower() or "місто київ" in line.lower():
+                # Пропускаємо заголовки компаній та столицю
+                if "м. київ" in line.lower() or "місто київ" in line.lower() or "АТ " in line:
                     continue
-                if "київськ" in line.lower() or "крем" in line.lower() or "област" in line.lower():
+                if "київськ" in line.lower() or "област" in line.lower() or "черг" in line.lower():
                     kyiv_line_index = idx
                     break
             
+            # КРОК 3: У знайденому блоці витягуємо чистий текст рядка 5 черги
             if kyiv_line_index != -1:
-                sub_block = lines[kyiv_line_index:kyiv_line_index + 15]
+                sub_block = lines[kyiv_line_index:kyiv_line_index + 12]
                 
-                # Пошук рядка строго вашої підгрупи 5.1
+                # Пошук підгрупи 5.1
                 for line in sub_block:
                     if "5.1" in line:
                         clean_line = line.strip().replace("•", "").strip()
                         return f"• {clean_line}"
                             
-                # Резервний загальний пошук 5 черги області
+                # Резервний пошук загальної 5 черги
                 for line in sub_block:
                     if any(g in line.lower() for g in ["5 черга", "5 група", "черга 5"]):
                         clean_line = line.strip().replace("•", "").strip()
@@ -120,7 +123,7 @@ def main():
     live_tomorrow = extract_exact_hours_by_logic(html_content, tomorrow_date, "завтра")
 
     if not live_today:
-        live_today = "• <i>Діючі обмеження на сьогодні відсутні або скасовані диспетчером обленерго.</i>"
+        live_today = "• <i>Обмеження на сьогодні відсутні або скасовані диспетчером обленерго.</i>"
     if not live_tomorrow:
         live_tomorrow = "• <i>Графік на завтра формується. Зміни з'являться автоматично протягом 15 хвилин.</i>"
 
