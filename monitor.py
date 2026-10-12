@@ -42,7 +42,7 @@ def get_live_channel_text():
         return ""
     return ""
 
-def extract_hours_by_date_and_group(html_content, date_str):
+def extract_hours_by_date_and_group(html_content, date_str, day_keyword):
     posts = re.findall(r'<div class="tgme_widget_message_text[^>]*>(.*?)</div>', html_content, re.DOTALL)
     if not posts:
         return None
@@ -53,10 +53,13 @@ def extract_hours_by_date_and_group(html_content, date_str):
         import html as html_parser
         clean_text = html_parser.unescape(clean_text)
         
-        if date_str in clean_text:
+        low_text = clean_text.lower()
+        
+        # Перевіряємо приналежність до потрібної дати або ключового слова дня
+        if date_str in clean_text or day_keyword in low_text:
             lines = clean_text.split("\n")
             
-            # Строгий пріоритетний пошук підгрупи 5.1
+            # СУВОРИЙ ПРІОРИТЕТНИЙ ПОШУК КЛЮЧОВОГО СЛОВА "5.1"
             for line in lines:
                 if "5.1" in line:
                     time_match = re.findall(r'(\d{2}:\d{2})\s*(?:-|—|–|до)\s*(\d{2}:\d{2})', line)
@@ -81,19 +84,19 @@ def main():
     
     html_content = get_live_channel_text()
     
-    # Динамічний пошук за поточною та наступною датою
     today_str = now.strftime("%d.%m")
     tomorrow_str = (now + timedelta(days=1)).strftime("%d.%m")
     
-    live_today = extract_hours_by_date_and_group(html_content, today_str)
-    live_tomorrow = extract_hours_by_date_and_group(html_content, tomorrow_str)
+    live_today = extract_hours_by_date_and_group(html_content, today_str, "сьогодні")
+    live_tomorrow = extract_hours_by_date_and_group(html_content, tomorrow_str, "завтра")
 
+    # СУВОРІ НЕЙТРАЛЬНІ ЗАГЛУШКИ БЕЗ ЗАШИТОГО ЧАСУ
     if not live_today:
-        live_today = "• з 19:00 до 23:00 (діє вечірнє розпорядження обмежень)"
+        live_today = "• <i>Діючі обмеження на сьогодні відсутні або скасовані диспетчером.</i>"
     if not live_tomorrow:
-        live_tomorrow = "• з 16:00 до 20:00 (діє затверджений розклад обмежень)"
+        live_tomorrow = "• <i>Графік на завтра формується. Зміни з'являться автоматично протягом 15 хвилин.</i>"
 
-    # ВІДФІЛЬТРОВАНО: Безпомилкове похвилинне розпакування значень часу з кортежу (tuple)
+    # ДИНАМІЧНЕ ВИЗНАЧЕННЯ СТАТУСУ (На основі живих годин з тексту)
     is_active_outage = False
     time_slots = re.findall(r'(\d{2}):\d{2}\s*(?:-|до|—|–)\s*(\d{2}):\d{2}', live_today)
     for slot in time_slots:
