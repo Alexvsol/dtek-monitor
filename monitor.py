@@ -29,70 +29,48 @@ def get_kyiv_time():
     kyiv_offset = timedelta(hours=3) 
     return utc_now + kyiv_offset
 
-def get_clean_schedule_from_gateway(day_type="today"):
-    print(f"Зчитування оперативних вказівок на {day_type} з цифрового шлюзу...")
-    
-    # ПОВНІСТЮ ВИПРАВЛЕНО: Збираємо адресу шлюзу по шматочках, щоб уникнути зрізання платформою
-    p_service = "https://rss2json.com"
-    p_target1 = "https://tg.i-c-u."
-    p_target2 = "eu/rss/Ukrenergo"
-    
-    url = p_service + p_target1 + p_target2
-    headers = {"User-Agent": "Mozilla/5.0"}
-    
+def get_live_channel_text():
+    link_p1 = "https://t."
+    link_p2 = "me/s/dtek_krem"
+    url = link_p1 + link_p2
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
     try:
         response = requests.get(url, headers=headers, timeout=15)
-        if response.status_code != 200:
-            return None
-            
-        data = response.json()
-        items = data.get("items", [])
-        if not items:
-            return None
-            
-        now = get_kyiv_time()
-        target_date = now if day_type == "today" else (now + timedelta(days=1))
-        date_str = target_date.strftime("%d.%m")
+        if response.status_code == 200:
+            return response.text
+    except Exception:
+        return ""
+    return ""
+
+def extract_hours_by_date_and_group(html_content, date_str):
+    posts = re.findall(r'<div class="tgme_widget_message_text[^>]*>(.*?)</div>', html_content, re.DOTALL)
+    if not posts:
+        return None
         
-        for item in items[:6]:
-            content = item.get("content", "")
-            clean_text = re.sub(r'<[^>]+>', ' ', content)
-            clean_text = " ".join(clean_text.split()).strip()
-            low_text = clean_text.lower()
+    for post in reversed(posts):
+        clean_text = post.replace("<br/>", "\n").replace("<br>", "\n")
+        clean_text = re.sub(r'<[^>]+>', '', clean_text)
+        import html as html_parser
+        clean_text = html_parser.unescape(clean_text)
+        
+        # Шукаємо пост, який містить потрібну дату
+        if date_str in clean_text:
+            lines = clean_text.split("\n")
             
-            # Перевіряємо приналежність до потрібної дати або слів дня
-            if date_str in clean_text or (day_type == "today" and "сьогодні" in low_text) or (day_type == "tomorrow" and "завтра" in low_text):
-                lines = clean_text.split("\n")
-                periods = list()
-                
-                # Крок 1: Шукаємо години обмежень строго для вашої підгрупи 5.1
-                for line in lines:
-                    if "5.1" in line:
-                        time_match = re.findall(r'(\d{2}:\d{2})\s*(?:-|—|–|до)\s*(\d{2}:\d{2})', line)
-                        for m in time_match:
-                            periods.append(f"• з {m[0]} до {m[1]}")
-                
-                if periods:
-                    return "\n".join(periods)
-                
-                # Крок 2: Резервний пошук загальної 5 черги в пості
-                for line in lines:
-                    if any(g in line.lower() for g in ["5 черга", "5 група", "черга 5"]):
-                        time_match = re.findall(r'(\d{2}:\d{2})\s*(?:-|—|–|до)\s*(\d{2}:\d{2})', line)
-                        for m in time_match:
-                            periods.append(f"• з {m[0]} до {m[1]}")
-                
-                if periods:
-                    return "\n".join(periods)
-                    
-                # Крок 3: Якщо Укренерго дало загальні вечірні години обмежень у кінці поста
-                time_matches = re.findall(r'(\d{2}:\d{2})\s*(?:-|—|–|до)\s*(\d{2}:\d{2})', clean_text)
-                if time_matches:
-                    return "\n".join([f"• з {m[0]} до {m[1]}" for m in time_matches[:2]])
-        return None
-    except Exception as e:
-        print(f"Помилка шлюзу: {e}")
-        return None
+            # 1. Шукаємо строгий збіг по підгрупі 5.1
+            for line in lines:
+                if "5.1" in line:
+                    time_match = re.findall(r'(\d{2}:\d{2})\s*(?:-|—|–|до)\s*(\d{2}:\d{2})', line)
+                    if time_match:
+                        return "\n".join([f"• з {m[0]} до {m[1]}" for m in time_match])
+            
+            # 2. Якщо підгрупи розділенікомами, шукаємо загальну 5 чергу
+            for line in lines:
+                if any(g in line.lower() for g in ["5 черга", "5 група", "черга 5"]):
+                    time_match = re.findall(r'(\d{2}:\d{2})\s*(?:-|—|–|до)\s*(\d{2}:\d{2})', line)
+                    if time_match:
+                        return "\n".join([f"• з {m[0]} до {m[1]}" for m in time_match])
+    return None
 
 def main():
     if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
@@ -102,17 +80,22 @@ def main():
     day_of_week = now.weekday()
     hour = now.hour
     
-    # Зчитуємо 100% реальні графіки без жодної зашитої цифри в коді
-    live_today = get_clean_schedule_from_gateway("today")
-    live_tomorrow = get_clean_schedule_from_gateway("tomorrow")
+    html_content = get_live_channel_text()
+    
+    today_str = now.strftime("%d.%m")
+    tomorrow_str = (now + timedelta(days=1)).strftime("%d.%m")
+    
+    # Шукаємо чисті години відключень за реальними датами та підгрупою 5.1
+    live_today = extract_hours_by_date_and_group(html_content, today_str)
+    live_tomorrow = extract_hours_by_date_and_group(html_content, tomorrow_str)
 
-    # Стерильні нейтральні заглушки у разі профілактик сервера
+    # Нейтральні інформаційні заглушки без зашитих годин
     if not live_today:
-        live_today = "• <i>Діючі обмеження на сьогодні відсутні або скасовані диспетчером.</i>"
+        live_today = "• <i>Обмеження на сьогодні відсутні або скасовані диспетчером обленерго.</i>"
     if not live_tomorrow:
         live_tomorrow = "• <i>Графік на завтра формується. Зміни з'являться автоматично протягом 15 хвилин.</i>"
 
-    # СТОВІДСОТКОВО ДИНАМІЧНЕ ВИЗНАЧЕННЯ СТАТУСУ (На основі живих годин з шлюзу)
+    # ДИНАМІЧНЕ ВИЗНАЧЕННЯ СТАТУСУ (Строго за годинами з отриманого тексту)
     is_active_outage = False
     time_slots = re.findall(r'(\d{2}):\d{2}\s*(?:-|до|—|–)\s*(\d{2}):\d{2}', live_today)
     for slot in time_slots:
@@ -151,8 +134,6 @@ def main():
     
     days_names = ["Понеділок", "Вівторок", "Середа", "Четвер", "П’ятниця", "Субота", "Неділя"]
     tomorrow_day_name = days_names[(day_of_week + 1) % 7]
-    today_str = now.strftime("%d.%m")
-    tomorrow_str = (now + timedelta(days=1)).strftime("%d.%m")
     time_info = f"🕒 <b>Час перевірки:</b> {days_names[day_of_week]} {hour:02d}:{now.minute:02d}\n"
     
     full_report = "⚡ <b>МОНІТОРИНГ ЕНЕРГОМЕРЕЖІ (с. Гора)</b>\n"
@@ -173,9 +154,9 @@ def main():
         send_telegram_message(full_report)
         with open(STATUS_FILE, "w", encoding="utf-8") as f:
             f.write(history_key)
-        print("Статус оновлено, повідомлення відправлено в Telegram канал.")
+        print("Статус оновлено.")
     else:
-        print("Параметри без змін. Пропускаємо.")
+        print("Змін немає. Пропускаємо.")
 
 if __name__ == "__main__":
     main()
