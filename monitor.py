@@ -29,9 +29,9 @@ def get_kyiv_time():
     kyiv_offset = timedelta(hours=3) 
     return utc_now + kyiv_offset
 
-def get_live_channel_text():
+def get_live_channel_text(source_chan="Ukrenergo"):
     link_p1 = "https://t."
-    link_p2 = "me/s/Ukrenergo"
+    link_p2 = f"me/s/{source_chan}"
     url = link_p1 + link_p2
     headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
     try:
@@ -76,15 +76,14 @@ def extract_exact_hours_by_logic(html_content, target_date, day_keyword):
             fresh_chunk = clean_text[start_index:]
             lines = fresh_chunk.split("\n")
             
-            # ВИПРАВЛЕНО: Шукаємо строго і просто слово "Київська"
             kyiv_line_index = -1
             for idx, line in enumerate(lines):
-                if "київська" in line.lower():
+                if "київська" in line.lower() or "дтек київськ" in line.lower():
                     kyiv_line_index = idx
                     break
             
             if kyiv_line_index != -1:
-                sub_block = lines[kyiv_line_index:kyiv_line_index + 12]
+                sub_block = lines[kyiv_line_index:kyiv_line_index + 15]
                 
                 # Пошук підгрупи 5.1
                 for line in sub_block:
@@ -109,28 +108,42 @@ def main():
     day_of_week = now.weekday()
     hour = now.hour
     
-    html_content = get_live_channel_text()
-    
     today_date = now
     tomorrow_date = now + timedelta(days=1)
     
+    # КРОК 1: Спробуємо зчитати розклад з офіційного каналу Укренерго
+    html_content = get_live_channel_text("Ukrenergo")
     live_today = extract_exact_hours_by_logic(html_content, today_date, "сьогодні")
     live_tomorrow = extract_exact_hours_by_logic(html_content, tomorrow_date, "завтра")
 
+    # КРОК 2: НАДІЙНИЙ РЕЗЕРВНИЙ ШЛЮЗ. Якщо Укренерго дав порожнечу (картинку), читаємо базу ДТЕК КРЕМ
+    if not live_today or not live_tomorrow:
+        print("Тексту в Укренерго немає (картинка). Перемикаємося на текстовий архів ДТЕК КРЕМ...")
+        html_dtek = get_live_channel_text("dtek_krem")
+        if not live_today:
+            live_today = extract_exact_hours_by_logic(html_dtek, today_date, "сьогодні")
+        if not live_tomorrow:
+            live_tomorrow = extract_exact_hours_by_logic(html_dtek, tomorrow_date, "завтра")
+
+    # КРОК 3: Безпечний резервний текстовий вивід, якщо в обох базах триває нічна профілактика
     if not live_today:
-        live_today = "• <i>Діючі обмеження на сьогодні відсутні або скасовані диспетчером обленерго.</i>"
+        if day_of_week == 0:  # Понеділок
+            live_today = "тут повинен бути текст нейтральної заглушки"
+        else:
+            live_today = "• <i>Діючі обмеження на сьогодні відсутні або скасовані диспетчером обленерго.</i>"
+            
     if not live_tomorrow:
         live_tomorrow = "• <i>Графік на завтра формується. Зміни з'являться автоматично протягом 15 хвилин.</i>"
 
+    # СТОВІДСОТКОВО ДИНАМІЧНЕ ВИЗНАЧЕННЯ СТАТУСУ ЖИВЛЕННЯ (Строго за годинами з тексту!)
     is_active_outage = False
-    if "до" in live_today or "з" in live_today:
-        time_slots = re.findall(r'(\d{2}):\d{2}\s*(?:-|до|—|–)\s*(\d{2}):\d{2}', live_today)
-        for slot in time_slots:
-            start_h = int(slot[0])
-            end_h = int(slot[1])
-            if start_h <= hour < end_h:
-                is_active_outage = True
-                break
+    time_slots = re.findall(r'(\d{2}):\d{2}\s*(?:-|до|—|–)\s*(\d{2}):\d{2}', live_today)
+    for slot in time_slots:
+        start_h = int(slot[0])
+        end_h = int(slot[1])
+        if start_h <= hour < end_h:
+            is_active_outage = True
+            break
 
     status_key = "OUTAGE" if is_active_outage else "POWER_ON"
     last_change_time_str = ""
