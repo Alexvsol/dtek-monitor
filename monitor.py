@@ -30,9 +30,9 @@ def get_kyiv_time():
     return utc_now + kyiv_offset
 
 def fetch_hours_from_bez_svitla(target_date, is_tomorrow=False):
-    url = "https://bezsvitla.com.ua"
+    url = "https://bezsvitla.com.ua/kyivska-oblast/girska-hromada/gora"
     if is_tomorrow:
-        url = "https://bezsvitla.com.ua/grafik-na-zavtra"
+        url = "https://bezsvitla.com.ua/kyivska-oblast/girska-hromada/gora/grafik-na-zavtra"
         
     headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
     
