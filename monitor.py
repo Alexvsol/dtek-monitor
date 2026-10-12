@@ -29,13 +29,12 @@ def get_kyiv_time():
     kyiv_offset = timedelta(hours=3) 
     return utc_now + kyiv_offset
 
-def fetch_hours_by_icons(target_date, is_tomorrow=False):
-    # Пряма точна адреса похвилинного розкладу с. Гора
-    url = "https://bezsvitla.com.ua/kyivska-oblast/girska-hromada/gora"
+def fetch_hours_from_bez_svitla(target_date, is_tomorrow=False):
+    url = "https://bezsvitla.com.ua"
     if is_tomorrow:
-        url = "https://bezsvitla.com.ua/kyivska-oblast/girska-hromada/gora/grafik-na-zavtra"
+        url = "https://bezsvitla.com.ua/grafik-na-zavtra"
         
-    headers = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"}
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
     
     try:
         response = requests.get(url, headers=headers, timeout=15)
@@ -43,42 +42,43 @@ def fetch_hours_by_icons(target_date, is_tomorrow=False):
             return None
             
         html_content = response.text
-        date_str = target_date.strftime("%d.%m")
-        print(html_content)
         
-        # Перевіряємо, чи є розклад на цю дату в базі агрегатора
-        if date_str not in html_content and target_date.strftime("%d.%m.%Y") not in html_content:
+        if is_tomorrow and "ще не опублікований" in html_content:
             return None
 
-        # Вирізаємо HTML блок, що стосується виключно Черги 5.1
-        group_block = re.search(r'Черга\s*5\.1.*?(?=Черга\s*\d|\Z)', html_content, re.DOTALL | re.IGNORECASE)
-        print(group_block)
-        if not group_block:
+        # КРОК 1: Знаходимо точну позицію початку розкладу Черги 5.1 на сторінці
+        # Шукаємо саме заголовок "Черга 5.1" у блоці графіків населеного пункту
+        start_marker = re.search(r'Черга\s*5\.1', html_content, re.IGNORECASE)
+        if not start_marker:
             return None
             
-        text_chunk = group_block.group(0)
+        # Обрізаємо HTML, залишаючи ТІЛЬКИ те, що йде ПІСЛЯ заголовку Черги 5.1
+        search_zone = html_content[start_marker.start():]
+
+        # КРОК 2: Послідовно зчитуємо часові інтервали та їхній статус відключення
+        # Витягуємо блоки: спочатку час bz-schedule-slot__time, потім шматок коду з його іконкою стану
+        slots = re.findall(r'(\d{2}:\d{2})\s*(?:-|–|—|до)\s*(\d{2}:\d{2})(.*?)(?=<span class="bz-schedule-slot__time"|<h2>|<h3>|\Z)', search_zone, re.DOTALL)
         
-        # ПРЯМОЛІНІЙНА ЛОГІКА: Розбиваємо HTML-блок просто по рядках сторінки
-        lines = text_chunk.split("\n")
         periods = list()
-        
-        for line in lines:
-            # КРИТЕРІЙ ВІДБОРУ: Якщо в цьому рядку є іконка трикутника відключення (або темний клас тла)
-            if "bi-exclamation-triangle-fill" in line or "bg-dark" in line:
-                # Витягуємо чисті години відключення формату ХХ:ХХ - ХХ:ХХ
-                time_match = re.search(r'(\d{2}:\d{2})\s*(?:-|–|—|до)\s*(\d{2}:\d{2})', line)
-                if time_match:
-                    hours_str = time_match.group(0).replace("–", "-").replace("—", "-")
-                    p_str = f"• з {hours_str.split('-').strip()} до {hours_str.split('-').strip()}"
-                    if p_str not in periods:
-                        periods.append(p_str)
-                        
+        for slot in slots:
+            start_time = slot[0]
+            end_time = slot[1]
+            sub_html = slot[2]
+            
+            # Перевіряємо стан: якщо в цьому слоті є іконка "Без світла" — фіксуємо обмеження
+            if 'aria-label="Без світла"' in sub_html or 'title="Без світла"' in sub_html:
+                periods.append(f"• з {start_time} до {end_time}")
+                
+            # КРОК 3: ЛОГІКА ВИХОДУ З ЦИКЛУ. Як тільки дійшли до кінця доби (24:00) — зупиняємось
+            if end_time == "24:00" or end_time.startswith("24"):
+                break
+                
         if periods:
             return "\n".join(periods)
             
         return None
     except Exception as e:
-        print(f"Помилка аналізу HTML іконок: {e}")
+        print(f"Помилка парсингу: {e}")
         return None
 
 def main():
@@ -92,23 +92,22 @@ def main():
     today_date = now
     tomorrow_date = now + timedelta(days=1)
     
-    # Зчитуємо стабілізаційні графіки за реальними графічними іконками БезСвітла
-    live_today = fetch_hours_by_icons(today_date, is_tomorrow=False)
-    live_tomorrow = fetch_hours_by_icons(tomorrow_date, is_tomorrow=True)
+    # Запуск покрокового чесного сканування HTML сторінки БезСвітла
+    live_today = fetch_hours_from_bez_svitla(today_date, is_tomorrow=False)
+    live_tomorrow = fetch_hours_from_bez_svitla(tomorrow_date, is_tomorrow=True)
 
-    # Чесні нейтральні заглушки без жодного обману в тексті
     if not live_today:
         live_today = "• <i>Діючі обмеження на сьогодні відсутні або скасовані диспетчером обленерго.</i>"
     if not live_tomorrow:
         live_tomorrow = "• <i>Офіційний розклад на завтра ще не оприлюднений. Очікуйте автоматичного оновлення стрічки.</i>"
 
-    # СТОВІДСОТКОВО ДИНАМІЧНЕ ВИЗНАЧЕННЯ СТАТУСУ (Строго за годинами знайдених іконок відключень!)
+    # ДИНАМІЧНЕ ВИЗНАЧЕННЯ СТАТУСУ (Строго за годинами знайдених тегів "Без світла")
     is_active_outage = False
     if "відсутні" not in live_today:
         time_slots = re.findall(r'(\d{2}):\d{2}\s*(?:-|до|—|–)\s*(\d{2}):\d{2}', live_today)
         for slot in time_slots:
-            start_h = int(slot)
-            end_h = int(slot)
+            start_h = int(slot[0])
+            end_h = int(slot[1])
             if start_h <= hour < end_h:
                 is_active_outage = True
                 break
@@ -138,7 +137,7 @@ def main():
         status_text += f"⏱️ <b>Статус змінено:</b> сьогодні о {last_change_time_str}"
     else:
         status_text = "🟢 <b>Група 5.1: СВІТЛО Є (Мережа працює в штатному режимі)</b>\n"
-        status_text += f"⏱️ <b>Статус змінено:</b> oggi о {last_change_time_str}"
+        status_text += f"⏱️ <b>Статус змінено:</b> сьогодні о {last_change_time_str}"
     
     days_names = ["Понеділок", "Вівторок", "Середа", "Четвер", "П’ятниця", "Субота", "Неділя"]
     tomorrow_day_name = days_names[(day_of_week + 1) % 7]
@@ -164,7 +163,7 @@ def main():
         send_telegram_message(full_report)
         with open(STATUS_FILE, "w", encoding="utf-8") as f:
             f.write(history_key)
-        print("Статус оновлено.")
+        print("Статус оновлено, повідомлення надіслано.")
     else:
         print("Змін немає. Пропускаємо.")
 
