@@ -49,11 +49,13 @@ def fetch_hours_from_bez_svitla(target_date, is_tomorrow=False):
         # КРОК 1: Знаходимо точну позицію початку розкладу Черги 5.1 на сторінці
         # Шукаємо саме заголовок "Черга 5.1" у блоці графіків населеного пункту
         start_marker = re.search(r'Черга\s*5\.1', html_content, re.IGNORECASE)
+        print(start_marker)
         if not start_marker:
             return None
             
         # Обрізаємо HTML, залишаючи ТІЛЬКИ те, що йде ПІСЛЯ заголовку Черги 5.1
         search_zone = html_content[start_marker.start():]
+        print(search_zone)
 
         # КРОК 2: Послідовно зчитуємо часові інтервали та їхній статус відключення
         # Витягуємо блоки: спочатку час bz-schedule-slot__time, потім шматок коду з його іконкою стану
