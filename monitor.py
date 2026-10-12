@@ -51,6 +51,7 @@ def fetch_hours_by_icons(target_date, is_tomorrow=False):
 
         # Вирізаємо HTML блок, що стосується виключно Черги 5.1
         group_block = re.search(r'Черга\s*5\.1.*?(?=Черга\s*\d|\Z)', html_content, re.DOTALL | re.IGNORECASE)
+        print(group_block)
         if not group_block:
             return None
             
