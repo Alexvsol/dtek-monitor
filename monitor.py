@@ -82,9 +82,7 @@ def extract_exact_hours_by_logic(html_content, target_date, day_keyword):
             kyiv_line_index = -1
             for idx, line in enumerate(lines):
                 # Пропускаємо заголовки компаній та столицю
-                if "м. київ" in line.lower() or "місто київ" in line.lower() or "АТ " in line:
-                    continue
-                if "київськ" in line.lower() or "област" in line.lower() or "черг" in line.lower():
+                if "київськ" in line.lower():
                     kyiv_line_index = idx
                     break
             
