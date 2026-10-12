@@ -52,12 +52,10 @@ def extract_exact_hours_by_logic(html_content, target_date, day_keyword):
         7: "липня", 8: "серпня", 9: "вересня", 10: "жовтня", 11: "листопада", 12: "грудня"
     }
     
-    # ФОРМУЄМО ВСІ МАРКЕРИ ДАТИ (наприклад: "12.10", "12 жовтня", "сьогодні")
     dot_date = target_date.strftime("%d.%m")
     full_dot_date = target_date.strftime("%d.%m.%Y")
     text_date = f"{target_date.day} {months_ua[target_date.month]}"
     
-    # Список пріоритетного пошуку точки входу в текст
     search_variants = [dot_date, text_date, full_dot_date, day_keyword]
     
     for post in reversed(posts):
@@ -69,41 +67,39 @@ def extract_exact_hours_by_logic(html_content, target_date, day_keyword):
         low_text = clean_text.lower()
         
         start_index = -1
-        # КРОК 1: Перевіряємо кожен варіант написання дати по черзі
         for variant in search_variants:
             if variant.lower() in low_text:
                 start_index = low_text.find(variant.lower())
                 break
                 
-        # Якщо хоч один варіант дати знайдено — обрізаємо текст ДО цієї точки
         if start_index != -1:
             fresh_chunk = clean_text[start_index:]
             lines = fresh_chunk.split("\n")
             
-            # КРОК 2: Шукаємо лінію Київської області у свіжому залишку тексту
+            # ВИПРАВЛЕНО: Шукаємо виключно Київську область (київськ) або абревіатуру ДТЕК КРЕМ. Місто Київ повністю ігнорується!
             kyiv_line_index = -1
             for idx, line in enumerate(lines):
-                if any(w in line.lower() for w in ["київськ", "центральн", "крем"]):
+                # Якщо рядок містить згадку столиці "м. київ" або просто "місто київ" — пропускаємо його
+                if "м. київ" in line.lower() or "місто київ" in line.lower():
+                    continue
+                if "київськ" in line.lower() or "крем" in line.lower() or "област" in line.lower():
                     kyiv_line_index = idx
                     break
             
-            # КРОК 3: Якщо знайшли блок нашої області, забираємо години обмежень для підгрупи 5.1
             if kyiv_line_index != -1:
                 sub_block = lines[kyiv_line_index:kyiv_line_index + 15]
                 
-                # Пріоритетний точний пошук підгрупи 5.1
+                # Пошук рядка строго вашої підгрупи 5.1
                 for line in sub_block:
                     if "5.1" in line:
-                        time_match = re.findall(r'(\d{2}:\d{2})\s*(?:-|—|–|до)\s*(\d{2}:\d{2})', line)
-                        if time_match:
-                            return "\n".join([f"• з {m[0]} до {m[1]}" for m in time_match])
+                        clean_line = line.strip().replace("•", "").strip()
+                        return f"• {clean_line}"
                             
-                # Резервний загальний пошук 5 черги всередині цього ж блоку
+                # Резервний загальний пошук 5 черги області
                 for line in sub_block:
                     if any(g in line.lower() for g in ["5 черга", "5 група", "черга 5"]):
-                        time_match = re.findall(r'(\d{2}:\d{2})\s*(?:-|—|–|до)\s*(\d{2}:\d{2})', line)
-                        if time_match:
-                            return "\n".join([f"• з {m[0]} до {m[1]}" for m in time_match])
+                        clean_line = line.strip().replace("•", "").strip()
+                        return f"• {clean_line}"
                             
     return None
 
@@ -120,25 +116,23 @@ def main():
     today_date = now
     tomorrow_date = now + timedelta(days=1)
     
-    # Шукаємо реальний розклад за всіма можливими варіантами дат та слів
     live_today = extract_exact_hours_by_logic(html_content, today_date, "сьогодні")
     live_tomorrow = extract_exact_hours_by_logic(html_content, tomorrow_date, "завтра")
 
-    # Нейтральні інформаційні заглушки без зашитих годин
     if not live_today:
         live_today = "• <i>Діючі обмеження на сьогодні відсутні або скасовані диспетчером обленерго.</i>"
     if not live_tomorrow:
         live_tomorrow = "• <i>Графік на завтра формується. Зміни з'являться автоматично протягом 15 хвилин.</i>"
 
+    # ДИНАМІЧНЕ ВИЗНАЧЕННЯ СТАТУСУ НА ОСНОВІ ЖИВОГО ТЕКСТУ
     is_active_outage = False
-    if "до" in live_today or "з" in live_today:
-        time_slots = re.findall(r'(\d{2}):\d{2}\s*(?:-|до|—|–)\s*(\d{2}):\d{2}', live_today)
-        for slot in time_slots:
-            start_h = int(slot[0])
-            end_h = int(slot[1])
-            if start_h <= hour < end_h:
-                is_active_outage = True
-                break
+    time_slots = re.findall(r'(\d{2}):\d{2}\s*(?:-|до|—|–)\s*(\d{2}):\d{2}', live_today)
+    for slot in time_slots:
+        start_h = int(slot[0])
+        end_h = int(slot[1])
+        if start_h <= hour < end_h:
+            is_active_outage = True
+            break
 
     status_key = "OUTAGE" if is_active_outage else "POWER_ON"
     last_change_time_str = ""
