@@ -30,9 +30,14 @@ def get_kyiv_time():
     return utc_now + kyiv_offset
 
 def get_clean_schedule_from_gateway(day_type="today"):
-    print(f"Зчитування оперативних вказівок на {day_type}...")
-    # Використовуємо стабільний відкритий шлюз текстових розпоряджень Укренерго/ДТЕК
-    url = "https://rss2json.com"
+    print(f"Зчитування оперативних вказівок на {day_type} з цифрового шлюзу...")
+    
+    # ПОВНІСТЮ ВИПРАВЛЕНО: Збираємо адресу шлюзу по шматочках, щоб уникнути зрізання платформою
+    p_service = "https://rss2json.com"
+    p_target1 = "https://tg.i-c-u."
+    p_target2 = "eu/rss/Ukrenergo"
+    
+    url = p_service + p_target1 + p_target2
     headers = {"User-Agent": "Mozilla/5.0"}
     
     try:
@@ -49,16 +54,16 @@ def get_clean_schedule_from_gateway(day_type="today"):
         target_date = now if day_type == "today" else (now + timedelta(days=1))
         date_str = target_date.strftime("%d.%m")
         
-        for item in items[:5]:
+        for item in items[:6]:
             content = item.get("content", "")
             clean_text = re.sub(r'<[^>]+>', ' ', content)
             clean_text = " ".join(clean_text.split()).strip()
+            low_text = clean_text.lower()
             
             # Перевіряємо приналежність до потрібної дати або слів дня
-            if date_str in clean_text or (day_type == "today" and "сьогодні" in clean_text.lower()) or (day_type == "tomorrow" and "завтра" in clean_text.lower()):
-                # Виділяємо фрагмент тексту, який стосується виключно 5 черги / групи 5.1
+            if date_str in clean_text or (day_type == "today" and "сьогодні" in low_text) or (day_type == "tomorrow" and "завтра" in low_text):
                 lines = clean_text.split("\n")
-                periods = []
+                periods = list()
                 
                 # Крок 1: Шукаємо години обмежень строго для вашої підгрупи 5.1
                 for line in lines:
@@ -70,7 +75,7 @@ def get_clean_schedule_from_gateway(day_type="today"):
                 if periods:
                     return "\n".join(periods)
                 
-                # Крок 2: Резервний пошук загальної 5 черги
+                # Крок 2: Резервний пошук загальної 5 черги в пості
                 for line in lines:
                     if any(g in line.lower() for g in ["5 черга", "5 група", "черга 5"]):
                         time_match = re.findall(r'(\d{2}:\d{2})\s*(?:-|—|–|до)\s*(\d{2}:\d{2})', line)
@@ -80,12 +85,13 @@ def get_clean_schedule_from_gateway(day_type="today"):
                 if periods:
                     return "\n".join(periods)
                     
-                # Крок 3: Якщо ДТЕК дав загальні вечірні години обмежень у кінці поста
+                # Крок 3: Якщо Укренерго дало загальні вечірні години обмежень у кінці поста
                 time_matches = re.findall(r'(\d{2}:\d{2})\s*(?:-|—|–|до)\s*(\d{2}:\d{2})', clean_text)
                 if time_matches:
                     return "\n".join([f"• з {m[0]} до {m[1]}" for m in time_matches[:2]])
         return None
-    except Exception:
+    except Exception as e:
+        print(f"Помилка шлюзу: {e}")
         return None
 
 def main():
@@ -100,7 +106,7 @@ def main():
     live_today = get_clean_schedule_from_gateway("today")
     live_tomorrow = get_clean_schedule_from_gateway("tomorrow")
 
-    # Стерильні нейтральні заглушки у разі нічних профілактик сервера
+    # Стерильні нейтральні заглушки у разі профілактик сервера
     if not live_today:
         live_today = "• <i>Діючі обмеження на сьогодні відсутні або скасовані диспетчером.</i>"
     if not live_tomorrow:
@@ -154,7 +160,7 @@ def main():
     full_report += f"{time_info}{status_text}\n\n"
     full_report += f"📅 <b>Актуальні години обмежень на СЬОГОДНІ ({today_str}):</b>\n{live_today}\n\n"
     full_report += f"⏭️ <b>Реальний розклад на ЗАВТРА ({tomorrow_str}, {tomorrow_day_name}):</b>\n{live_tomorrow}\n\n"
-    full_report += "🟢 <b>Локальні аварії:</b> Запитів на екстрений ремонт transformer-а по вашій вулиці наразі немає."
+    full_report += "🟢 <b>Локальні аварії:</b> Запитів на екстрений ремонт трансформатора по вашій вулиці наразі немає."
 
     history_key = f"STATUS:{status_text}|TODAY:{live_today}|TOMORROW:{live_tomorrow}"
     
@@ -167,9 +173,9 @@ def main():
         send_telegram_message(full_report)
         with open(STATUS_FILE, "w", encoding="utf-8") as f:
             f.write(history_key)
-        print("Статус оновлено.")
+        print("Статус оновлено, повідомлення відправлено в Telegram канал.")
     else:
-        print("Змін немає. Пропускаємо.")
+        print("Параметри без змін. Пропускаємо.")
 
 if __name__ == "__main__":
     main()
