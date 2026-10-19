@@ -33,30 +33,21 @@ def get_kyiv_time():
     kyiv_offset = timedelta(hours=3) 
     return utc_now + kyiv_offset
 
-def check_real_power_by_socket():
+def check_real_power_by_camera_response():
     if "your-ddns-name" in HOME_HOST:
         return None
-            
-    print("000")
+    
+    url = f"http://{HOME_HOST}:{HOME_PORT}"
     try:
-        # Перевіряємо працездатність домену
-        try:
-            socket.gethostbyname(HOME_HOST)
-        except socket.gaierror:
-            print("111")
-            return False
-
-        print("222")
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.settimeout(5.0) # Чекаємо відповіді від камери до 5 секунд
-        result = sock.connect_ex((HOME_HOST, HOME_PORT))
-        sock.close()
-        print(result)
-        
-        # СУВОРА ЛОГІКА: Світло є ТІЛЬКИ тоді, коли підключення успішне (код 0)
-        # Якщо камера вимкнена від мережі, порт поверне код помилки (111, 110 тощо), і статус стане червоним!
-        return result == 0
-    except Exception:
+        # Надсилаємо швидкий HTTP запит безпосередньо до пристрою
+        response = requests.get(url, timeout=6.0)
+        # Якщо пристрій повернув ХОЧ ЯКИЙСЬ статус-код (наприклад 200, 401 Unauthorized або 404)
+        # це означає, що залізо камери прокинулось, згенерувало HTTP-відповідь і надіслало її в хмару. Світло є!
+        print(f"DEBUG: Камера відповіла HTTP кодом: {response.status_code}")
+        return True
+    except requests.exceptions.RequestException as e:
+        # Якщо таймаут або роутер скинув запит без відповіді від камери — світла немає
+        print(f"DEBUG: Відповіді від камери немає (офлайн): {e}")
         return False
 
 
@@ -126,7 +117,7 @@ def main():
     live_tomorrow = fetch_hours_from_bez_svitla(tomorrow_date, is_tomorrow=True)
     
     # Запускаємо низькорівневий пінг камери
-    real_power_status = check_real_power_by_socket()
+    real_power_status = check_real_power_by_camera_response()
 
 
     if not live_today:
