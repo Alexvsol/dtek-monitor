@@ -85,6 +85,7 @@ def main():
     now = get_kyiv_time()
     day_of_week = now.weekday()
     hour = now.hour
+    print(now)
     
     today_date = now
     tomorrow_date = now + timedelta(days=1)
@@ -102,6 +103,7 @@ def main():
     is_active_outage = False
     if "відсутні" not in live_today:
         time_slots = re.findall(r'(\d{2}):\d{2}\s*(?:-|до|—|–)\s*(\d{2}):\d{2}', live_today)
+        print(live_today)
         print(time_slots)
         for slot in time_slots:
             start_h = int(slot[0])
