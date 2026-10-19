@@ -9,7 +9,7 @@ TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 STATUS_FILE = "last_status.txt"
 TIME_FILE = "last_change_time.txt"
 
-HOME_DDNS = "alexvsol.tplinkdns.com" 
+HOME_HOST = "alexvsol.tplinkdns.com" 
 HOME_PORT = 8080
 
 def send_telegram_message(text):
