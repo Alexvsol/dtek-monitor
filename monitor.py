@@ -2,6 +2,7 @@ import os
 import sys
 import requests
 import re
+import socket
 from datetime import datetime, timedelta
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
