@@ -10,6 +10,7 @@ STATUS_FILE = "last_status.txt"
 TIME_FILE = "last_change_time.txt"
 
 HOME_DDNS = "alexvsol.tplinkdns.com" 
+HOME_PORT = 8080
 
 def send_telegram_message(text):
     p1, p2, b, m = "https://api.", "telegram.org", "/bot", "/sendMessage"
@@ -31,14 +32,18 @@ def get_kyiv_time():
     kyiv_offset = timedelta(hours=3) 
     return utc_now + kyiv_offset
 
-def check_real_power_by_ping():
-    if "your-ddns-name" in HOME_DDNS:
+def check_real_power_by_socket():
+    if "your-ddns-name" in HOME_HOST:
         return None
     try:
-        # Системний пінг Linux (надсилаємо 2 пакети з таймаутом у 4 секунди)
-        res = subprocess.run(["ping", "-c", "2", "-W", "4", HOME_DDNS], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        # Якщо код повернення 0 — пристрій успішно відповів, світло є!
-        return res.returncode == 0
+        # Створюємо пряме TCP-підключення до вашого прокинутого порту 8080
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(5.0) # Чекаємо відповіді до 5 секунд
+        result = sock.connect_ex((HOME_HOST, HOME_PORT))
+        sock.close()
+        # Якщо код повернення 0 — порт відгукнувся, роутер у мережі, світло є!
+        # Якщо код 111 (Connection refused) — роутер теж у мережі, просто камера скинула з'єднання. Це теж означає, що СВІТЛО Є!
+        return result == 0 or result == 111 or result == 61
     except Exception:
         return False
 
@@ -109,7 +114,7 @@ def main():
     live_tomorrow = fetch_hours_from_bez_svitla(tomorrow_date, is_tomorrow=True)
     
     # Запускаємо низькорівневий пінг камери
-    real_power_status = check_real_power_by_ping()
+    real_power_status = check_real_power_by_socket()
 
 
     if not live_today:
