@@ -45,6 +45,7 @@ def check_real_power_by_socket():
             print("111")
             return False
 
+        print("222")
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.settimeout(5.0) # Чекаємо відповіді від камери до 5 секунд
         result = sock.connect_ex((HOME_HOST, HOME_PORT))
