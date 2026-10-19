@@ -35,12 +35,14 @@ def get_kyiv_time():
 def check_real_power_by_socket():
     if "your-ddns-name" in HOME_HOST:
         return None
+            
+    print("000")
     try:
         # Перевіряємо працездатність домену
         try:
             socket.gethostbyname(HOME_HOST)
         except socket.gaierror:
-            print(False)
+            print("111")
             return False
 
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
