@@ -36,14 +36,20 @@ def check_real_power_by_socket():
     if "your-ddns-name" in HOME_HOST:
         return None
     try:
-        # Створюємо пряме TCP-підключення до вашого прокинутого порту 8080
+        # Перевіряємо працездатність домену
+        try:
+            socket.gethostbyname(HOME_HOST)
+        except socket.gaierror:
+            return False
+
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.settimeout(5.0) # Чекаємо відповіді до 5 секунд
+        sock.settimeout(5.0) # Чекаємо відповіді від камери до 5 секунд
         result = sock.connect_ex((HOME_HOST, HOME_PORT))
         sock.close()
-        # Якщо код повернення 0 — порт відгукнувся, роутер у мережі, світло є!
-        # Якщо код 111 (Connection refused) — роутер теж у мережі, просто камера скинула з'єднання. Це теж означає, що СВІТЛО Є!
-        return result == 0 or result == 111 or result == 61
+        
+        # СУВОРА ЛОГІКА: Світло є ТІЛЬКИ тоді, коли підключення успішне (код 0)
+        # Якщо камера вимкнена від мережі, порт поверне код помилки (111, 110 тощо), і статус стане червоним!
+        return result == 0
     except Exception:
         return False
 
