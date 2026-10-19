@@ -40,6 +40,7 @@ def check_real_power_by_socket():
         try:
             socket.gethostbyname(HOME_HOST)
         except socket.gaierror:
+            print(False)
             return False
 
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
