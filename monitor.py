@@ -86,8 +86,6 @@ def main():
     day_of_week = now.weekday()
     hour = now.hour
     current_total_minutes = now.hour * 60 + now.minute
-    print(now)
-    print(current_total_minutes)
     
     today_date = now
     tomorrow_date = now + timedelta(days=1)
@@ -105,8 +103,6 @@ def main():
     is_active_outage = False
     if "відсутні" not in live_today:
         time_slots = re.findall(r'(\d{2}:\d{2})\s*(?:-|до|—|–)\s*(\d{2}:\d{2})', live_today)
-        print(live_today)
-        print(time_slots)
 
         for start_str, end_str in time_slots:
             # Розбиваємо знайдені рядки на години та хвилини
@@ -116,8 +112,6 @@ def main():
             # Переводимо у хвилини від початку доби
             start_minutes = h_start * 60 + m_start
             end_minutes = h_end * 60 + m_end
-            print(start_minutes)
-            print(end_minutes)
             
             # 3. Логіка порівняння (наприклад, чи йде ефір прямо зараз)
             if start_minutes <= current_total_minutes <= end_minutes:
