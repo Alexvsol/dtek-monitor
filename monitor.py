@@ -85,7 +85,9 @@ def main():
     now = get_kyiv_time()
     day_of_week = now.weekday()
     hour = now.hour
+    current_total_minutes = now.hour * 60 + now.minute
     print(now)
+    print(current_total_minutes)
     
     today_date = now
     tomorrow_date = now + timedelta(days=1)
@@ -102,13 +104,28 @@ def main():
     # ДИНАМІЧНЕ ВИЗНАЧЕННЯ СТАТУСУ (Строго за годинами знайдених тегів "Без світла")
     is_active_outage = False
     if "відсутні" not in live_today:
-        time_slots = re.findall(r'(\d{2}):\d{2}\s*(?:-|до|—|–)\s*(\d{2}):\d{2}', live_today)
+        time_slots = re.findall(r'(\d{2}:\d{2})\s*(?:-|до|—|–)\s*(\d{2}:\d{2})', live_today)
         print(live_today)
         print(time_slots)
-        for slot in time_slots:
-            start_h = int(slot[0])
-            end_h = int(slot[1])
-            if start_h <= hour < end_h:
+
+        for start_str, end_str in time_slots:
+            # Розбиваємо знайдені рядки на години та хвилини
+            h_start, m_start = map(int, start_str.split(':'))
+            h_end, m_end = map(int, end_str.split(':'))
+            
+            # Переводимо у хвилини від початку доби
+            start_minutes = h_start * 60 + m_start
+            end_minutes = h_end * 60 + m_end
+            print(start_minutes)
+            print(end_minutes)
+            
+            # 3. Логіка порівняння (наприклад, чи йде ефір прямо зараз)
+            if start_minutes <= current_total_minutes <= end_minutes:
+        
+ #        for slot in time_slots:
+  #           start_h = int(slot[0])
+  #           end_h = int(slot[1])
+  #           if start_h <= hour < end_h:
                 is_active_outage = True
                 break
 
