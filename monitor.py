@@ -11,7 +11,7 @@ STATUS_FILE = "last_status.txt"
 TIME_FILE = "last_change_time.txt"
 
 HOME_HOST = "alexvsol.tplinkdns.com" 
-HOME_PORT = 8080
+HOME_PORT = 554
 
 def send_telegram_message(text):
     p1, p2, b, m = "https://api.", "telegram.org", "/bot", "/sendMessage"
@@ -33,21 +33,29 @@ def get_kyiv_time():
     kyiv_offset = timedelta(hours=3) 
     return utc_now + kyiv_offset
 
-def check_real_power_by_camera_response():
+def check_real_power_by_camera_socket():
     if "your-ddns-name" in HOME_HOST:
         return None
-    
-    url = f"http://{HOME_HOST}:{HOME_PORT}"
     try:
-        # Надсилаємо швидкий HTTP запит безпосередньо до пристрою
-        response = requests.get(url, timeout=6.0)
-        # Якщо пристрій повернув ХОЧ ЯКИЙСЬ статус-код (наприклад 200, 401 Unauthorized або 404)
-        # це означає, що залізо камери прокинулось, згенерувало HTTP-відповідь і надіслало її в хмару. Світло є!
-        print(f"DEBUG: Камера відповіла HTTP кодом: {response.status_code}")
-        return True
-    except requests.exceptions.RequestException as e:
-        # Якщо таймаут або роутер скинув запит без відповіді від камери — світла немає
-        print(f"DEBUG: Відповіді від камери немає (офлайн): {e}")
+        # Перевіряємо доступність домену в мережі інтернет
+        try:
+            socket.gethostbyname(HOME_HOST)
+        except socket.gaierror:
+            print("DEBUG: Домен не резолвиться (офлайн).")
+            return False
+
+        # Відкриваємо прямий сокет-конект до медіа-порту камери Imou
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(5.0) # Чекаємо відповіді від камери до 5 секунд
+        result = sock.connect_ex((HOME_HOST, HOME_PORT))
+        sock.close()
+        
+        print(f"DEBUG: Код відповіді сокета камери Imou (Порт 554): {result}")
+        
+        # Для порту 554 код 0 означає успішне з'єднання (камера онлайн, світло є)
+        return result == 0
+    except Exception as e:
+        print(f"Помилка сокета: {e}")
         return False
 
 
@@ -117,7 +125,7 @@ def main():
     live_tomorrow = fetch_hours_from_bez_svitla(tomorrow_date, is_tomorrow=True)
     
     # Запускаємо низькорівневий пінг камери
-    real_power_status = check_real_power_by_camera_response()
+    real_power_status = check_real_power_by_camera_socket()
 
 
     if not live_today:
