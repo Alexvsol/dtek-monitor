@@ -9,6 +9,8 @@ TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 STATUS_FILE = "last_status.txt"
 TIME_FILE = "last_change_time.txt"
 
+HOME_DDNS = "alexvsol.tplinkdns.com" 
+
 def send_telegram_message(text):
     p1, p2, b, m = "https://api.", "telegram.org", "/bot", "/sendMessage"
     url = p1 + p2 + b + TELEGRAM_TOKEN + m
@@ -28,6 +30,18 @@ def get_kyiv_time():
     utc_now = datetime.utcnow()
     kyiv_offset = timedelta(hours=3) 
     return utc_now + kyiv_offset
+
+def check_real_power_by_ping():
+    if "your-ddns-name" in HOME_DDNS:
+        return None
+    try:
+        # Системний пінг Linux (надсилаємо 2 пакети з таймаутом у 4 секунди)
+        res = subprocess.run(["ping", "-c", "2", "-W", "4", HOME_DDNS], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        # Якщо код повернення 0 — пристрій успішно відповів, світло є!
+        return res.returncode == 0
+    except Exception:
+        return False
+
 
 def fetch_hours_from_bez_svitla(target_date, is_tomorrow=False):
     url = "https://bezsvitla.com.ua/kyivska-oblast/girska-hromada/gora"
@@ -93,6 +107,10 @@ def main():
     # Запуск покрокового чесного сканування HTML сторінки БезСвітла
     live_today = fetch_hours_from_bez_svitla(today_date, is_tomorrow=False)
     live_tomorrow = fetch_hours_from_bez_svitla(tomorrow_date, is_tomorrow=True)
+    
+    # Запускаємо низькорівневий пінг камери
+    real_power_status = check_real_power_by_ping()
+
 
     if not live_today:
         live_today = "• <i>Діючі обмеження на сьогодні відсутні або скасовані диспетчером обленерго.</i>"
@@ -123,6 +141,10 @@ def main():
                 is_active_outage = True
                 break
 
+    # Фізичний пінг має абсолютний пріоритет над плановими графіками
+    if real_power_status is not None:
+        is_active_outage = not real_power_status
+
     status_key = "OUTAGE" if is_active_outage else "POWER_ON"
     last_change_time_str = ""
     if os.path.exists(TIME_FILE):
@@ -133,7 +155,7 @@ def main():
     if os.path.exists(STATUS_FILE):
         with open(STATUS_FILE, "r", encoding="utf-8") as f:
             old_content = f.read()
-            if "ПЛАНОВЕ ВІДКЛЮЧЕННЯ" in old_content:
+            if "ПЛАНОВЕ ВІДКЛЮЧЕННЯ" in old_content or "ЗНЕСТРУМЛЕНА" in old_content:
                 last_status_key = "OUTAGE"
             elif "СВІТЛО Є" in old_content:
                 last_status_key = "POWER_ON"
@@ -143,12 +165,20 @@ def main():
         with open(TIME_FILE, "w", encoding="utf-8") as f:
             f.write(last_change_time_str)
 
-    if is_active_outage:
-        status_text = "🔴 <b>Група 5.1: ПЛАНОВЕ ВІДКЛЮЧЕННЯ (Світла немає)</b>\n"
-        status_text += f"⏱️ <b>Статус змінено:</b> сьогодні о {last_change_time_str}"
+    if real_power_status is not None:
+        if real_power_status:
+            status_text = "🟢 <b>Група 5.1: СВІТЛО Є (Фізично підтверджено онлайн-камерою)</b>\n"
+            status_text += f"⏱️ <b>Мережа стабільна з:</b> {last_change_time_str}"
+        else:
+            status_text = "🔴 <b>Група 5.1: МЕРЕЖА ЗНЕСТРУМЛЕНА (Камера офлайн — світла немає)</b>\n"
+            status_text += f"⏱️ <b>Фактичне вимкнення о:</b> {last_change_time_str}"
     else:
-        status_text = "🟢 <b>Група 5.1: СВІТЛО Є (Мережа працює в штатному режимі)</b>\n"
-        status_text += f"⏱️ <b>Статус змінено:</b> сьогодні о {last_change_time_str}"
+        if is_active_outage:
+            status_text = "🔴 <b>Група 5.1: ПЛАНОВЕ ВІДКЛЮЧЕННЯ (За графіком ДТЕК)</b>\n"
+            status_text += f"⏱️ <b>Зміна статусу:</b> сьогодні о {last_change_time_str}"
+        else:
+            status_text = "🟢 <b>Група 5.1: СВІТЛО Є (Мережа працює в штатному режимі)</b>\n"
+            status_text += f"⏱️ <b>Зміна статусу:</b> сьогодні о {last_change_time_str}"
     
     days_names = ["Понеділок", "Вівторок", "Середа", "Четвер", "П’ятниця", "Субота", "Неділя"]
     tomorrow_day_name = days_names[(day_of_week + 1) % 7]
