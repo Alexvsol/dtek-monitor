@@ -34,29 +34,7 @@ def get_kyiv_time():
     return utc_now + kyiv_offset
 
 def check_real_power_by_camera_socket():
-    if "your-ddns-name" in HOME_HOST:
         return None
-    try:
-        # Перевіряємо доступність домену в мережі інтернет
-        try:
-            socket.gethostbyname(HOME_HOST)
-        except socket.gaierror:
-            print("DEBUG: Домен не резолвиться (офлайн).")
-            return False
-
-        # Відкриваємо прямий сокет-конект до медіа-порту камери Imou
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.settimeout(5.0) # Чекаємо відповіді від камери до 5 секунд
-        result = sock.connect_ex((HOME_HOST, HOME_PORT))
-        sock.close()
-        
-        print(f"DEBUG: Код відповіді сокета камери Imou (Порт 554): {result}")
-        
-        # Для порту 554 код 0 означає успішне з'єднання (камера онлайн, світло є)
-        return result == 0
-    except Exception as e:
-        print(f"Помилка сокета: {e}")
-        return False
 
 
 def fetch_hours_from_bez_svitla(target_date, is_tomorrow=False):
