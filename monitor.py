@@ -51,26 +51,26 @@ async def check_real_power_by_imou_api():
             discovered_devices = await discover_service.async_discover_devices()
             
             if IMOU_DEVICE_ID in discovered_devices:
-                camera = discovered_devices.get(IMOU_DEVICE_ID)
-                if camera:
-                    # ОБХІД БАГУ БІБЛІОТЕКИ: Запитуємо сирі дані безпосередньо через API клієнт,
-                    # щоб уникнути внутрішнього ділення на нуль у методах get_data()
-                    api_response = await api_client.async_api_request("deviceOnline", {"deviceId": IMOU_DEVICE_ID})
-                    
-                    # Перевіряємо статус пристрою у сирій відповіді сервера Imou
-                    # "online" означає, що камера в мережі (світло є), "offline" - світла немає
-                    status_data = api_response.get("onLine", "").lower()
-                    print(f"DEBUG Imou API: Сирий статус з хмари: {status_data}")
-                    if "online" in status_data:
-                        return True
-                    else:
-                        return False
+                # ОБХІД ВНУТРІШНЬОГО БАГУ ДІЛЕННЯ НА НУЛЬ:
+                # Робимо прямий безпечний виклик методу "async_request" безпосередньо до сервера
+                api_response = await api_client.async_request("deviceOnline", {"deviceId": IMOU_DEVICE_ID})
+                
+                # Перевіряємо статус пристрою у сирій відповіді сервера Imou
+                # "online" означає, що камера в мережі (світло є), "offline" - світла немає
+                status_data = str(api_response.get("onLine", "")).lower()
+                print(f"DEBUG Imou API: Офіційний статус з хмари: {status_data}")
+                
+                if "online" in status_data or status_data == "1":
+                    return True
+                else:
+                    return False
             else:
                 print(f"Попередження: Пристрій {IMOU_DEVICE_ID} не знайдено в акаунті Imou Developer.")
                 return None
     except Exception as e:
         print(f"Помилка при роботі з офіційним API Imou: {e}")
         return None
+
 
 
 def fetch_hours_from_bez_svitla(target_date, is_tomorrow=False):
