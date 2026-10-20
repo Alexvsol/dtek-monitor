@@ -40,33 +40,6 @@ def get_kyiv_time():
     return utc_now + kyiv_offset
 
 async def check_real_power_by_imou_api():
-    if not IMOU_APP_ID or not IMOU_APP_SECRET:
-        return None
-    try:
-        async with aiohttp.ClientSession() as session:
-            api_client = ImouAPIClient(IMOU_APP_ID, IMOU_APP_SECRET, session)
-            discover_service = ImouDiscoverService(api_client)
-            
-            print("Зв'язуємось з офіційним хмаровим сервером Imou...")
-            discovered_devices = await discover_service.async_discover_devices()
-            
-            if IMOU_DEVICE_ID in discovered_devices:
-                camera = discovered_devices.get(IMOU_DEVICE_ID)
-                if camera:
-                    await camera.async_get_data()
-                    camera_status = camera.get_status()
-                    print(f"DEBUG Imou API: Поточний статус камери у хмарі: {camera_status}")
-                    
-                    # За документацією: "0" означає, що камера повністю OFFLINE (світла немає)
-                    if camera_status == "0":
-                        return False
-                    else:
-                        return True
-            else:
-                print(f"Попередження: Пристрій {IMOU_DEVICE_ID} не знайдено в акаунті Imou Developer.")
-                return None
-    except Exception as e:
-        print(f"Помилка при роботі з офіційним API Imou: {e}")
         return None
 
 
