@@ -53,15 +53,18 @@ async def check_real_power_by_imou_api():
             if IMOU_DEVICE_ID in discovered_devices:
                 camera = discovered_devices.get(IMOU_DEVICE_ID)
                 if camera:
-                    await camera.async_get_data()
-                    camera_status = str(camera.get_status())
-                    print(f"DEBUG Imou API: Поточний статус камери у хмарі: {camera_status}")
+                    # ОБХІД БАГУ БІБЛІОТЕКИ: Запитуємо сирі дані безпосередньо через API клієнт,
+                    # щоб уникнути внутрішнього ділення на нуль у методах get_data()
+                    api_response = await api_client.async_api_request("deviceOnline", {"deviceId": IMOU_DEVICE_ID})
                     
-                    # За документацією: "0" означає, що камера повністю OFFLINE (світла немає)
-                    if camera_status == "0":
-                        return False
-                    else:
+                    # Перевіряємо статус пристрою у сирій відповіді сервера Imou
+                    # "online" означає, що камера в мережі (світло є), "offline" - світла немає
+                    status_data = api_response.get("onLine", "").lower()
+                    print(f"DEBUG Imou API: Сирий статус з хмари: {status_data}")
+                    if "online" in status_data:
                         return True
+                    else:
+                        return False
             else:
                 print(f"Попередження: Пристрій {IMOU_DEVICE_ID} не знайдено в акаунті Imou Developer.")
                 return None
