@@ -10,9 +10,9 @@ from datetime import datetime, timedelta
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
-APP_ID = "lc4901c257de0e41b6"
-APP_SECRET = "f02568f0436b486384212b2add5064"
-DEVICE_ID = "HDBW1320E-W-2384"  # Обычно указан на наклейке камеры (S/N)
+IMOU_APP_ID = "lc4901c257de0e41b6"
+IMOU_APP_SECRET = "f02568f0436b486384212b2add5064"
+IMOU_DEVICE_ID = "HDBW1320E-W-2384"  # Обычно указан на наклейке камеры (S/N)
 STATUS_FILE = "last_status.txt"
 TIME_FILE = "last_change_time.txt"
 
