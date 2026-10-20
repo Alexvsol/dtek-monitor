@@ -2,11 +2,16 @@ import os
 import sys
 import requests
 import re
-import socket
+import aiohttp
+from imouapi.api import ImouAPIClient
+from imouapi.device import ImouDiscoverService
 from datetime import datetime, timedelta
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+APP_ID = "lc4901c257de0e41b6"
+APP_SECRET = "f02568f0436b486384212b2add5064"
+DEVICE_ID = "HDBW1320E-W-2384"  # Обычно указан на наклейке камеры (S/N)
 STATUS_FILE = "last_status.txt"
 TIME_FILE = "last_change_time.txt"
 
@@ -33,7 +38,34 @@ def get_kyiv_time():
     kyiv_offset = timedelta(hours=3) 
     return utc_now + kyiv_offset
 
-def check_real_power_by_camera_socket():
+async def check_real_power_by_imou_api():
+    if not IMOU_APP_ID or not IMOU_APP_SECRET:
+        return None
+    try:
+        async with aiohttp.ClientSession() as session:
+            api_client = ImouAPIClient(IMOU_APP_ID, IMOU_APP_SECRET, session)
+            discover_service = ImouDiscoverService(api_client)
+            
+            print("Зв'язуємось з офіційним хмаровим сервером Imou...")
+            discovered_devices = await discover_service.async_discover_devices()
+            
+            if IMOU_DEVICE_ID in discovered_devices:
+                camera = discovered_devices.get(IMOU_DEVICE_ID)
+                if camera:
+                    await camera.async_get_data()
+                    camera_status = str(camera.get_status())
+                    print(f"DEBUG Imou API: Поточний статус камери у хмарі: {camera_status}")
+                    
+                    # За документацією: "0" означає, що камера повністю OFFLINE (світла немає)
+                    if camera_status == "0":
+                        return False
+                    else:
+                        return True
+            else:
+                print(f"Попередження: Пристрій {IMOU_DEVICE_ID} не знайдено в акаунті Imou Developer.")
+                return None
+    except Exception as e:
+        print(f"Помилка при роботі з офіційним API Imou: {e}")
         return None
 
 
@@ -86,7 +118,7 @@ def fetch_hours_from_bez_svitla(target_date, is_tomorrow=False):
         print(f"Помилка парсингу: {e}")
         return None
 
-def main():
+async def async_main():
     if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
         sys.exit(1)
 
@@ -102,9 +134,8 @@ def main():
     live_today = fetch_hours_from_bez_svitla(today_date, is_tomorrow=False)
     live_tomorrow = fetch_hours_from_bez_svitla(tomorrow_date, is_tomorrow=True)
     
-    # Запускаємо низькорівневий пінг камери
-    real_power_status = check_real_power_by_camera_socket()
-
+    # Викликаємо нову асинхронну офіційну хмарову перевірку Imou Cloud
+    real_power_status = await check_real_power_by_imou_api()
 
     if not live_today:
         live_today = "• <i>Діючі обмеження на сьогодні відсутні або скасовані диспетчером обленерго.</i>"
@@ -203,4 +234,4 @@ def main():
         print("Змін немає. Пропускаємо.")
 
 if __name__ == "__main__":
-    main()
+asyncio.run(async_main())
