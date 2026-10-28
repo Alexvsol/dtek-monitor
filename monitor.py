@@ -6,6 +6,7 @@ import re
 import aiohttp
 from imouapi.api import ImouAPIClient
 from imouapi.device import ImouDiscoverService
+from zoneinfo import ZoneInfo
 from datetime import datetime, timedelta
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
@@ -35,10 +36,8 @@ def send_telegram_message(text):
         print(f"Помилка відправки: {e}")
 
 def get_kyiv_time():
-    utc_now = datetime.utcnow()
-    kyiv_offset = timedelta(hours=3) 
-    return utc_now + kyiv_offset
-
+    return datetime.now(ZoneInfo("Europe/Kyiv")) # Автоматичний контроль зима/літо
+    
 async def check_real_power_by_imou_api():
     if not IMOU_APP_ID or not IMOU_APP_SECRET:
         return None
