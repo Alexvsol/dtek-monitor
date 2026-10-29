@@ -80,7 +80,7 @@ def fetch_hours_from_bez_svitla(target_date, is_tomorrow=False):
     try:
         response = requests.get(url, headers=headers, timeout=15)
         if response.status_code != 200:
-            return None
+            return "ERROR"
             
         html_content = response.text
 
@@ -117,7 +117,7 @@ def fetch_hours_from_bez_svitla(target_date, is_tomorrow=False):
         return None
     except Exception as e:
         print(f"Помилка парсингу: {e}")
-        return None
+        return "ERROR"
 
 async def async_main():
     if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
@@ -134,6 +134,12 @@ async def async_main():
     # Запуск покрокового чесного сканування HTML сторінки БезСвітла
     live_today = fetch_hours_from_bez_svitla(today_date, is_tomorrow=False)
     live_tomorrow = fetch_hours_from_bez_svitla(tomorrow_date, is_tomorrow=True)
+    
+    # Якщо зафіксовано реальну мережеву помилку сервера (ERROR) — тихо виходимо, чекаючи 15 хв
+    if "ERROR" in [live_today, live_tomorrow]:
+        print("Критичний збій зв'язку з сервером БезСвітла. Перевірку перенесено на наступний цикл.")
+        return
+
     
     # Викликаємо нову асинхронну офіційну хмарову перевірку Imou Cloud
     real_power_status = await check_real_power_by_imou_api()
