@@ -13,7 +13,8 @@ TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 IMOU_APP_ID = "lc4901c257de0e41b6"
 IMOU_APP_SECRET = "f02568f0436b486384212b2add5064"
-IMOU_DEVICE_ID = "HDBW1320E-W-2384"  # Обычно указан на наклейке камеры (S/N)
+IMOU_DEVICE_ID_1 = "HDBW1320E-W-2384"  # Обычно указан на наклейке камеры (S/N)
+IMOU_DEVICE_ID_2 = "Bullet Lite 4MP-95CF" # Друга камера
 STATUS_FILE = "last_status.txt"
 TIME_FILE = "last_change_time.txt"
 
@@ -40,7 +41,7 @@ def get_kyiv_time():
     
 async def check_real_power_by_imou_api():
     if not IMOU_APP_ID or not IMOU_APP_SECRET:
-        return None
+        return None, None
     try:
         async with aiohttp.ClientSession() as session:
             api_client = ImouAPIClient(IMOU_APP_ID, IMOU_APP_SECRET, session)
@@ -49,7 +50,10 @@ async def check_real_power_by_imou_api():
             print("Зв'язуємось з офіційним хмаровим сервером Imou...")
             discovered_devices = await discover_service.async_discover_devices()
             
-            if IMOU_DEVICE_ID in discovered_devices:
+            status_1 = None
+            status_2 = None
+            
+            if IMOU_DEVICE_ID_1 in discovered_devices:
                 camera = discovered_devices.get(IMOU_DEVICE_ID)
                 if camera:
                     await camera.async_get_data()
@@ -58,16 +62,34 @@ async def check_real_power_by_imou_api():
                     
                     # За документацією: "0" означає, що камера повністю OFFLINE (світла немає)
                     if camera_status == "0":
-                        return False
+                        status_1 = False
                     else:
-                        return True
+                        status_1 = True
             else:
                 print(f"Попередження: Пристрій {IMOU_DEVICE_ID} не знайдено в акаунті Imou Developer.")
-                return None
+                status_1 = None
+                
+            if IMOU_DEVICE_ID_2 in discovered_devices:
+                camera = discovered_devices.get(IMOU_DEVICE_ID)
+                if camera:
+                    await camera.async_get_data()
+                    camera_status = camera.get_status()
+                    print(f"DEBUG Imou API: Поточний статус камери у хмарі: {camera_status}")
+                    
+                    # За документацією: "0" означає, що камера повністю OFFLINE (світла немає)
+                    if camera_status == "0":
+                        status_2 = False
+                    else:
+                        status_2 = True
+            else:
+                print(f"Попередження: Пристрій {IMOU_DEVICE_ID} не знайдено в акаунті Imou Developer.")
+                status_2 = None
+                
+            return status_1, status_2
+              
     except Exception as e:
         print(f"Помилка при роботі з офіційним API Imou: {e}")
-        return None
-
+        return None, None
 
 
 def fetch_hours_from_bez_svitla(target_date, is_tomorrow=False):
@@ -142,7 +164,12 @@ async def async_main():
 
     
     # Викликаємо нову асинхронну офіційну хмарову перевірку Imou Cloud
-    real_power_status = await check_real_power_by_imou_api()
+    cam1_online, cam2_online = await check_real_power_by_imou_api()
+
+    real_power_status = None
+    if cam1_online is not None or cam2_online is not None:
+        real_power_status = (cam1_online or cam2_online)
+
 
     if not live_today:
         live_today = "• <i>Діючі обмеження на сьогодні відсутні або скасовані диспетчером обленерго.</i>"
@@ -217,14 +244,19 @@ async def async_main():
     today_str = today_date.strftime("%d.%m")
     tomorrow_str = tomorrow_date.strftime("%d.%m")
     time_info = f"🕒 <b>Час перевірки:</b> {days_names[day_of_week]} {hour:02d}:{now.minute:02d}\n"
-    
+
+    icon_c1 = "🟢" if cam1_online else "🔴"
+    icon_c2 = "🟢" if cam2_online else "🔴"
+    cameras_footer = f"📊 Контроль: {icon_c1} {icon_c2}"
+
     full_report = "⚡ <b>МОНІТОРИНГ ЕНЕРГОМЕРЕЖІ (с. Гора)</b>\n"
     full_report += "📍 вул. Басейна\n\n"
     full_report += f"{time_info}{status_text}\n\n"
     full_report += f"📅 <b>Актуальні години обмежень на СЬОГОДНІ ({today_str}):</b>\n{live_today}\n\n"
     full_report += f"⏭️ <b>Реальний розклад на ЗАВТРА ({tomorrow_str}, {tomorrow_day_name}):</b>\n{live_tomorrow}\n\n"
-    full_report += "🟢 <b>Локальні аварії:</b> Запитів на екстрений ремонт трансформатора по вашій вулиці наразі немає."
-
+    #full_report += "🟢 <b>Локальні аварії:</b> Запитів на екстрений ремонт трансформатора по вашій вулиці наразі немає."
+    full_report += f"{cameras_footer}"
+    
     history_key = f"STATUS:{status_text}|TODAY:{live_today}|TOMORROW:{live_tomorrow}"
     
     last_status = ""
