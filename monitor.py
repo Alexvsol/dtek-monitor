@@ -54,7 +54,7 @@ async def check_real_power_by_imou_api():
             status_2 = None
             
             if IMOU_DEVICE_ID_1 in discovered_devices:
-                camera = discovered_devices.get(IMOU_DEVICE_ID)
+                camera = discovered_devices.get(IMOU_DEVICE_ID_1)
                 if camera:
                     await camera.async_get_data()
                     camera_status = camera.get_status()
@@ -66,11 +66,11 @@ async def check_real_power_by_imou_api():
                     else:
                         status_1 = True
             else:
-                print(f"Попередження: Пристрій {IMOU_DEVICE_ID} не знайдено в акаунті Imou Developer.")
+                print(f"Попередження: Пристрій {IMOU_DEVICE_ID_1} не знайдено в акаунті Imou Developer.")
                 status_1 = None
                 
             if IMOU_DEVICE_ID_2 in discovered_devices:
-                camera = discovered_devices.get(IMOU_DEVICE_ID)
+                camera = discovered_devices.get(IMOU_DEVICE_ID_2)
                 if camera:
                     await camera.async_get_data()
                     camera_status = camera.get_status()
@@ -82,7 +82,7 @@ async def check_real_power_by_imou_api():
                     else:
                         status_2 = True
             else:
-                print(f"Попередження: Пристрій {IMOU_DEVICE_ID} не знайдено в акаунті Imou Developer.")
+                print(f"Попередження: Пристрій {IMOU_DEVICE_ID_2} не знайдено в акаунті Imou Developer.")
                 status_2 = None
                 
             return status_1, status_2
