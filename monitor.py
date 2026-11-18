@@ -163,6 +163,30 @@ async def async_main():
         return
 
     
+    last_status = ""
+    old_status_text = ""
+    old_cameras_footer = ""
+    last_status_key = ""
+    
+    if os.path.exists(STATUS_FILE):
+        with open(STATUS_FILE, "r", encoding="utf-8") as f:
+            last_status = f.read().strip()
+            if "ЗНЕСТРУМЛЕНА" in last_status or "ПЛАНОВЕ ВІДКЛЮЧЕННЯ" in last_status:
+                last_status_key = "OUTAGE"
+            elif "СВІТЛО Є" in last_status:
+                last_status_key = "POWER_ON"
+                
+            status_match = re.search(r'STATUS:(.*?)\|TODAY:', last_status, re.DOTALL)
+            if status_match:
+                old_status_text = status_match.group(1)
+            footer_match = re.search(r'FOOTER:(.*)', last_status, re.DOTALL)
+            if footer_match:
+                old_cameras_footer = footer_match.group(1)
+
+    last_change_time_str = ""
+    if os.path.exists(TIME_FILE):
+        with open(TIME_FILE, "r", encoding="utf-8") as f:
+            last_change_time_str = f.read().strip()
     # Викликаємо нову асинхронну офіційну хмарову перевірку Imou Cloud
     cam1_online, cam2_online = await check_real_power_by_imou_api()
 
@@ -177,77 +201,36 @@ async def async_main():
         live_tomorrow = "• <i>Офіційний розклад на завтра ще не оприлюднений. Очікуйте автоматичного оновлення стрічки.</i>"
 
     # ДИНАМІЧНЕ ВИЗНАЧЕННЯ СТАТУСУ (Строго за годинами знайдених тегів "Без світла")
-    is_active_outage = False
-    if "відсутні" not in live_today:
-        time_slots = re.findall(r'(\d{2}:\d{2})\s*(?:-|до|—|–)\s*(\d{2}:\d{2})', live_today)
-
-        for start_str, end_str in time_slots:
-            # Розбиваємо знайдені рядки на години та хвилини
-            h_start, m_start = map(int, start_str.split(':'))
-            h_end, m_end = map(int, end_str.split(':'))
-            
-            # Переводимо у хвилини від початку доби
-            start_minutes = h_start * 60 + m_start
-            end_minutes = h_end * 60 + m_end
-            
-            # 3. Логіка порівняння (наприклад, чи йде ефір прямо зараз)
-            if start_minutes <= current_total_minutes <= end_minutes:
-        
- #        for slot in time_slots:
-  #           start_h = int(slot[0])
-  #           end_h = int(slot[1])
-  #           if start_h <= hour < end_h:
-                is_active_outage = True
-                break
-
-    # Фізичний пінг має абсолютний пріоритет над плановими графіками
     if real_power_status is not None:
+        # API камер відповіло коректно — оновлюємо статус світла та час
         is_active_outage = not real_power_status
+        status_key = "OUTAGE" if is_active_outage else "POWER_ON"
 
-    status_key = "OUTAGE" if is_active_outage else "POWER_ON"
-    last_change_time_str = ""
-    if os.path.exists(TIME_FILE):
-        with open(TIME_FILE, "r", encoding="utf-8") as f:
-            last_change_time_str = f.read().strip()
+        if status_key != last_status_key or not last_change_time_str:
+            last_change_time_str = now.strftime("%H:%M")
+            with open(TIME_FILE, "w", encoding="utf-8") as f:
+                f.write(last_change_time_str)
 
-    last_status_key = ""
-    if os.path.exists(STATUS_FILE):
-        with open(STATUS_FILE, "r", encoding="utf-8") as f:
-            old_content = f.read()
-            if "ПЛАНОВЕ ВІДКЛЮЧЕННЯ" in old_content or "ЗНЕСТРУМЛЕНА" in old_content:
-                last_status_key = "OUTAGE"
-            elif "СВІТЛО Є" in old_content:
-                last_status_key = "POWER_ON"
-
-    if status_key != last_status_key or not last_change_time_str:
-        last_change_time_str = now.strftime("%H:%M")
-        with open(TIME_FILE, "w", encoding="utf-8") as f:
-            f.write(last_change_time_str)
-
-    if real_power_status is not None:
         if real_power_status:
-            status_text = "🟢 <b>Група 5.1: СВІТЛО Є (Фізично підтверджено онлайн-камерою)</b>\n"
+            status_text = "🟢 <b>Група 5.1: СВІТЛО Є (Фізично підтверджено онлайн-камерою Imou)</b>\n"
             status_text += f"⏱️ <b>Мережа стабільна з:</b> {last_change_time_str}"
         else:
             status_text = "🔴 <b>Група 5.1: МЕРЕЖА ЗНЕСТРУМЛЕНА (Камера офлайн — світла немає)</b>\n"
             status_text += f"⏱️ <b>Фактичне вимкнення о:</b> {last_change_time_str}"
-    else:
-        if is_active_outage:
-            status_text = "🔴 <b>Група 5.1: ПЛАНОВЕ ВІДКЛЮЧЕННЯ (За графіком ДТЕК)</b>\n"
-            status_text += f"⏱️ <b>Зміна статусу:</b> сьогодні о {last_change_time_str}"
-        else:
-            status_text = "🟢 <b>Група 5.1: СВІТЛО Є (Мережа працює в штатному режимі)</b>\n"
-            status_text += f"⏱️ <b>Зміна статусу:</b> сьогодні о {last_change_time_str}"
-    
-    days_names = ["Понеділок", "Вівторок", "Середа", "Четвер", "П’ятниця", "Субота", "Неділя"]
-    tomorrow_day_name = days_names[(day_of_week + 1) % 7]
-    today_str = today_date.strftime("%d.%m")
-    tomorrow_str = tomorrow_date.strftime("%d.%m")
-    time_info = f"🕒 <b>Час перевірки:</b> {days_names[day_of_week]} {hour:02d}:{now.minute:02d}\n"
 
-    icon_c1 = "🟢" if cam1_online else "🔴"
-    icon_c2 = "🟢" if cam2_online else "🔴"
-    cameras_footer = f"📊 Контроль: {icon_c1} {icon_c2}"
+        icon_c1 = "🟢" if cam1_online else "🔴"
+        icon_c2 = "🟢" if cam2_online else "🔴"
+        cameras_footer = f"📊 <b>Контроль:</b> {icon_c1} {icon_c2}"
+    else:
+        # API камер не відповіло — залишаємо старий статус світла незмінним!
+        print("Увага: Збій API Imou. Зберігаємо попередній статус світла, але перевіряємо графіки.")
+        if old_status_text:
+            status_text = old_status_text
+            cameras_footer = old_cameras_footer if old_cameras_footer else "📊 <b>Контроль:</b> ⚠️ ⚠️"
+        else:
+            status_text = "🟡 <b>Група 5.1: ОЧІКУВАННЯ ЗВ'ЯЗКУ З КАМЕРАМИ</b>\n"
+            status_text += f"⏱️ <b>Час перевірки:</b> {now.strftime('%H:%M')}"
+            cameras_footer = "📊 <b>Контроль:</b> ⚠️ ⚠️"
 
     full_report = "⚡ <b>МОНІТОРИНГ ЕНЕРГОМЕРЕЖІ (с. Гора)</b>\n"
     full_report += "📍 вул. Басейна\n\n"
@@ -257,12 +240,15 @@ async def async_main():
     #full_report += "🟢 <b>Локальні аварії:</b> Запитів на екстрений ремонт трансформатора по вашій вулиці наразі немає."
     full_report += f"{cameras_footer}"
     
-    history_key = f"STATUS:{status_text}|TODAY:{live_today}|TOMORROW:{live_tomorrow}"
-    
-    last_status = ""
-    if os.path.exists(STATUS_FILE):
-        with open(STATUS_FILE, "r", encoding="utf-8") as f:
-            last_status = f.read().strip()
+    history_key = f"STATUS:{status_text}|TODAY:{live_today_text}|TOMORROW:{live_tomorrow_text}|ACCIDENTS:{live_accidents}|FOOTER:{cameras_footer}"
+            
+    if history_key != last_status:
+        send_telegram_message(full_report)
+        with open(STATUS_FILE, "w", encoding="utf-8") as f:
+            f.write(history_key)
+        print("Статус або графік оновлено, повідомлення надіслано.")
+    else:
+        print("Змін немає. Пропускаємо.")
             
     if history_key != last_status:
         send_telegram_message(full_report)
