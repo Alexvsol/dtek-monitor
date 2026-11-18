@@ -162,7 +162,16 @@ async def async_main():
         print("Критичний збій зв'язку з сервером БезСвітла. Перевірку перенесено на наступний цикл.")
         return
 
-    
+     if live_today == "NONE":
+        live_today_text = "• <i>Діючі обмеження на сьогодні відсутні або скасовані диспетчером обленерго.</i>"
+    else:
+        live_today_text = live_today
+
+    if live_tomorrow == "NOT_PUBLISHED" or live_tomorrow == "NONE":
+        live_tomorrow_text = "• <i>Офіційний розклад на завтра ще не оприлюднений. Очікуйте автоматичного оновлення стрічки.</i>"
+    else:
+        live_tomorrow_text = live_tomorrow
+   
     last_status = ""
     old_status_text = ""
     old_cameras_footer = ""
