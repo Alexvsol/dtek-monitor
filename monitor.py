@@ -232,6 +232,12 @@ async def async_main():
             status_text += f"⏱️ <b>Час перевірки:</b> {now.strftime('%H:%M')}"
             cameras_footer = "📊 <b>Контроль:</b> ⚠️ ⚠️"
 
+    days_names = ["Понеділок", "Вівторок", "Середа", "Четвер", "П’ятниця", "Субота", "Неділя"]
+    tomorrow_day_name = days_names[(day_of_week + 1) % 7]
+    today_str = now.strftime("%d.%m")
+    tomorrow_str = (now + timedelta(days=1)).strftime("%d.%m")
+    time_info = f"🕒 <b>Час перевірки:</b> {days_names[day_of_week]} {hour:02d}:{now.minute:02d}\n"
+
     full_report = "⚡ <b>МОНІТОРИНГ ЕНЕРГОМЕРЕЖІ (с. Гора)</b>\n"
     full_report += "📍 вул. Басейна\n\n"
     full_report += f"{time_info}{status_text}\n\n"
