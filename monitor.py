@@ -187,7 +187,7 @@ async def async_main():
         with open(TIME_FILE, "r", encoding="utf-8") as f:
             last_change_time_str = f.read().strip()
 
-    cam1_online, cam2_online = await check_real_power_by_both_imou_api()
+    cam1_online, cam2_online = await check_real_power_by_imou_api()
 
     real_power_status = None
     if cam1_online is not None or cam2_online is not None:
