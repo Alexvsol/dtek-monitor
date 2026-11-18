@@ -148,27 +148,19 @@ async def async_main():
     now = get_kyiv_time()
     day_of_week = now.weekday()
     hour = now.hour
+    current_total_minutes = now.hour * 60 + now.minute
     
     today_date = now
     tomorrow_date = now + timedelta(days=1)
     
+    # Запуск покрокового чесного сканування HTML сторінки БезСвітла
     live_today = fetch_hours_from_bez_svitla(today_date, is_tomorrow=False)
     live_tomorrow = fetch_hours_from_bez_svitla(tomorrow_date, is_tomorrow=True)
-    live_accidents = fetch_local_accidents_from_bez_svitla()
     
-    if "ERROR" in [live_today, live_tomorrow, live_accidents]:
-        print("Критичний збій зв'язку з сервером БезСвітла. Перевірку перенесено.")
+    # Якщо зафіксовано реальну мережеву помилку сервера (ERROR) — тихо виходимо, чекаючи 15 хв
+    if "ERROR" in [live_today, live_tomorrow]:
+        print("Критичний збій зв'язку з сервером БезСвітла. Перевірку перенесено на наступний цикл.")
         return
-
-    if live_today == "NONE":
-        live_today_text = "• <i>Діючі обмеження на сьогодні відсутні або скасовані диспетчером обленерго.</i>"
-    else:
-        live_today_text = live_today
-
-    if live_tomorrow == "NOT_PUBLISHED" or live_tomorrow == "NONE":
-        live_tomorrow_text = "• <i>Офіційний розклад на завтра ще не оприлюднений. Очікуйте автоматичного оновлення стрічки.</i>"
-    else:
-        live_tomorrow_text = live_tomorrow
 
     last_status = ""
     old_status_text = ""
@@ -200,6 +192,11 @@ async def async_main():
     real_power_status = None
     if cam1_online is not None or cam2_online is not None:
         real_power_status = bool(cam1_online or cam2_online)
+        
+    if not live_today:
+        live_today = "• <i>Діючі обмеження на сьогодні відсутні або скасовані диспетчером обленерго.</i>"
+    if not live_tomorrow:
+        live_tomorrow = "• <i>Офіційний розклад на завтра ще не оприлюднений. Очікуйте автоматичного оновлення стрічки.</i>"
 
     if real_power_status is not None:
         is_active_outage = not real_power_status
