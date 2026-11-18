@@ -242,10 +242,10 @@ async def async_main():
     full_report += f"{time_info}{status_text}\n\n"
     full_report += f"📅 <b>Актуальні години обмежень на СЬОГОДНІ ({today_str}):</b>\n{live_today_text}\n\n"
     full_report += f"⏭️ <b>Реальний розклад на ЗАВТРА ({tomorrow_str}, {tomorrow_day_name}):</b>\n{live_tomorrow_text}\n\n"
-    full_report += f"{live_accidents}\n\n"
+    #full_report += f"{live_accidents}\n\n"
     full_report += f"{cameras_footer}"
 
-    history_key = f"STATUS:{status_text}|TODAY:{live_today_text}|TOMORROW:{live_tomorrow_text}|ACCIDENTS:{live_accidents}|FOOTER:{cameras_footer}"
+    history_key = f"STATUS:{status_text}|TODAY:{live_today_text}|TOMORROW:{live_tomorrow_text}|FOOTER:{cameras_footer}"
             
     if history_key != last_status:
         send_telegram_message(full_report)
