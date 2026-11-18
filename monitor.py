@@ -194,9 +194,13 @@ async def async_main():
         real_power_status = bool(cam1_online or cam2_online)
         
     if not live_today:
-        live_today = "• <i>Діючі обмеження на сьогодні відсутні або скасовані диспетчером обленерго.</i>"
+        live_today_text = "• <i>Діючі обмеження на сьогодні відсутні або скасовані диспетчером обленерго.</i>"
+    else:
+        live_today_text = live_today
     if not live_tomorrow:
-        live_tomorrow = "• <i>Офіційний розклад на завтра ще не оприлюднений. Очікуйте автоматичного оновлення стрічки.</i>"
+        live_tomorrow_text = "• <i>Офіційний розклад на завтра ще не оприлюднений. Очікуйте автоматичного оновлення стрічки.</i>"
+    else:
+        live_tomorrow_text = live_tomorrow
 
     if real_power_status is not None:
         is_active_outage = not real_power_status
