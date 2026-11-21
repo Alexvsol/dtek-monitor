@@ -11,10 +11,10 @@ from datetime import datetime, timedelta
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
-IMOU_APP_ID = "lc4901c257de0e41b6"
-IMOU_APP_SECRET = "f02568f0436b486384212b2add5064"
-IMOU_DEVICE_ID_1 = "HDBW1320E-W-2384"  # Обычно указан на наклейке камеры (S/N)
-IMOU_DEVICE_ID_2 = "Bullet Lite 4MP-95CF" # Друга камера
+IMOU_APP_ID = os.getenv("IMOU_APP_ID")
+IMOU_APP_SECRET = os.getenv("IMOU_APP_SECRET")
+IMOU_DEVICE_ID_1 = os.getenv("IMOU_DEVICE_ID_1")
+IMOU_DEVICE_ID_2 = os.getenv("IMOU_DEVICE_ID_2")
 STATUS_FILE = "last_status.txt"
 TIME_FILE = "last_change_time.txt"
 
