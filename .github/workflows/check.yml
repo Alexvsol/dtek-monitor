@@ -32,6 +32,10 @@ jobs:
       env:
         TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
         TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        IMOU_APP_ID: ${{ secrets.IMOU_APP_ID }}
+        IMOU_APP_SECRET: ${{ secrets.IMOU_APP_SECRET }}
+        IMOU_DEVICE_ID_1: ${{ secrets.IMOU_DEVICE_ID_1 }}
+        IMOU_DEVICE_ID_2: ${{ secrets.IMOU_DEVICE_ID_2 }}      
       run: python monitor.py
 
     - name: Commit and Push if status changed
